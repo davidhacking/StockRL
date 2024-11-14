@@ -1,5 +1,5 @@
 # 使用 Tushare API 下载文件时所需要用到的 tocken
-Tushare_Tocken = "c576df5b626df4f37c30bae84520d70c7945a394d7ee274ef2685444"
+Tushare_Tocken = "cd63754e5ee823494e89a68fedd374ed94a497e17142757096075add"
 
 # 从 Tushare 下载数据的区间
 Start_Date = '20090101'

@@ -8,7 +8,10 @@ import time
 from gym import spaces
 
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-from stable_baselines3.common import logger
+from stable_baselines3.common.logger import Logger, configure
+
+log_path = './logs/'  # 指定日志保存的路径
+logger = configure(log_path, ["stdout", "csv", "tensorboard"])
 
 class StockLearningEnv(gym.Env):
     """构建强化学习交易环境
@@ -58,10 +61,19 @@ class StockLearningEnv(gym.Env):
         self.buy_cost_pct = buy_cost_pct
         self.sell_cost_pct = sell_cost_pct
         self.daily_information_cols = daily_information_cols
+        D = len(self.assets) # 股票数量
+        b = 1 # 余额
+        h = D # 每只股票的持仓信息
+        p = D * len(self.daily_information_cols) # 股票的价格信息
         self.state_space = (
-            1 + len(self.assets) + len(self.assets) * len(self.daily_information_cols)
+            b + h + p
         )
-        self.action_space = spaces.Box(low=-1, high=1, shape=(len(self.assets),))
+        """
+        对于某支股票，动作空间的定义为 {−k, . . . , −1, 0, 1, . . . , k}，其中 𝑘 和 −𝑘 表示我
+        们可以购买和出售的股份数量 k <= hmax，因为 RL 算法 A2C 和 PPO 直接使用高斯分布输出策略的分布，
+        需要进行归一化处理，所以动作空间被归一化为 [−1,1]。
+        """
+        self.action_space = spaces.Box(low=-1, high=1, shape=(D,))
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(self.state_space,)
         )
