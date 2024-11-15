@@ -1,5 +1,6 @@
 from typing import List
 import pandas as pd
+import numpy as np
 from pyfolio import timeseries
 import pyfolio
 from copy import deepcopy
@@ -60,6 +61,64 @@ def backtest_plot(
             benchmark_rets=baseline_returns,
             set_context=False
         )
+
+def financial_metrics(returns):
+    # 将NaN值替换为0 
+    returns = returns.fillna(0)
+
+    # 计算累计收益率
+    cumulative_return = (1 + returns).prod() - 1 
+
+    # 计算最大回撤率
+    cumulative_wealth_index = (1 + returns).cumprod()
+    previous_peaks = cumulative_wealth_index.cummax()
+    drawdowns = (cumulative_wealth_index - previous_peaks) / previous_peaks
+    max_drawdown = drawdowns.min()
+
+    # 计算年化收益率和年化波动率
+    annualized_return = np.power(1 + cumulative_return, 252 / len(returns)) - 1 
+    annualized_vol = returns.std() * np.sqrt(252)
+
+    # 计算Sharpe比率 (假设无风险利率为0)
+    sharpe_ratio = annualized_return / annualized_vol
+
+    # 计算Omega比率
+    threshold_return = 0  # 设定阈值收益率为0 
+    omega_numerator = returns[returns > threshold_return].sum()
+    omega_denominator = -returns[returns < threshold_return].sum()
+    omega_ratio = omega_numerator / omega_denominator if omega_denominator != 0 else np.nan
+
+    result_dict = {
+        "累计收益率": cumulative_return,
+        "最大回撤率": max_drawdown,
+        "年化收益率": annualized_return,
+        "年化波动率": annualized_vol,
+        "Sharpe比率": sharpe_ratio,
+        "Omega比率": omega_ratio
+    }
+    for key, value in result_dict.items():
+        if isinstance(value, float):
+            result_dict[key] = "{:.2%}".format(value)
+    return result_dict
+
+def backtest_plot_from_file(
+    filepath, get_baseline_func,
+    account_value_dict: dict,
+    value_col_name: str = "account_value"
+) -> dict:
+    """对回测数据进行分析并画图"""
+    baseline_df = get_baseline_from_file(filepath, get_baseline_func)
+    baseline_returns = get_daily_return(baseline_df, value_col_name="close")
+    baseline_fdata = financial_metrics(baseline_returns)
+    res = {}
+    res['baseline'] = baseline_fdata
+    def handle_account_value(account_value):
+        df = deepcopy(account_value)
+        test_returns = get_daily_return(df, value_col_name=value_col_name)
+        return financial_metrics(test_returns)
+    for k, v in account_value_dict.items():
+        res[k] = handle_account_value(v)
+    return res
 
 def get_baseline(
     ticker: List, start: str, end: str
