@@ -45,7 +45,8 @@ class StockLearningEnv(gym.Env):
         cache_indicator_data: bool = True,
         random_start: bool = True,
         patient: bool = False,
-        currency: str = "￥"
+        currency: str = "￥",
+        alpha: float = 1.0
     ) -> None:
         self.df = df
         self.stock_col = "tic"
@@ -70,7 +71,7 @@ class StockLearningEnv(gym.Env):
         )
         """
         对于某支股票，动作空间的定义为 {−k, . . . , −1, 0, 1, . . . , k}，其中 𝑘 和 −𝑘 表示我
-        们可以购买和出售的股份数量 k <= hmax，因为 RL 算法 A2C 和 PPO 直接使用高斯分布输出策略的分布，
+        们可以购买和出售的股份数量 k = hmax，因为 RL 算法 A2C 和 PPO 直接使用高斯分布输出策略的分布，
         需要进行归一化处理，所以动作空间被归一化为 [−1,1]。
         """
         self.action_space = spaces.Box(low=-1, high=1, shape=(D,))
@@ -84,6 +85,7 @@ class StockLearningEnv(gym.Env):
         self.cache_indicator_data = cache_indicator_data
         self.cached_data = None
         self.max_total_assets = 0
+        self.alpha = alpha
         if self.cache_indicator_data:
             """cashing data 的结构:
                [[date1], [date2], [date3], ...]
@@ -245,7 +247,11 @@ class StockLearningEnv(gym.Env):
             self.printed_header = True
 
     def get_reward(self) -> float:
-        """获取奖励值"""
+        """
+        获取奖励值=累计收益率 - 当前回撤率作为奖励值
+        在股票交易中，我们可以把智能体取得的累计收益率作为奖励值，这非常合理。
+        但为了让收益更加稳健，我们还可以在奖励值中加入当前回撤率，作为负的奖励值，也可以说是惩罚值。
+        """
         if self.current_step == 0:
             return 0
         else:
@@ -256,7 +262,7 @@ class StockLearningEnv(gym.Env):
             else:
                 retreat = assets / self.max_total_assets - 1
             reward = assets / self.initial_amount - 1
-            reward += retreat
+            reward += self.alpha * retreat
             return reward
 
     def get_transactions(self, actions: np.ndarray) -> np.ndarray:

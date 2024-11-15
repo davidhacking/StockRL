@@ -73,3 +73,12 @@ def get_baseline(
     ).pull_data()
 
     return baselines
+
+def get_baseline_from_file(filepath, get_baseline_func):
+    import os
+    if not os.path.exists(filepath):
+        data = get_baseline_func()
+        data.to_csv(filepath, index=False)
+        return data
+    else:
+        return pd.read_csv(filepath)

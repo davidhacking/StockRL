@@ -12,7 +12,9 @@ End_Test_Date = "2024-01-01"
 
 # 技术指标列表
 TECHNICAL_INDICATORS_LIST = [
-    "boll_ub", "boll_lb", "rsi_20", "close_20_sma", "close_60_sma", "close_120_sma", \
+    "boll_ub", #BOLL 指标上轨线 股价应始终处于股价信道内运行，若股价突破上轨线，则表明股价处于超买状态，提醒观察者可以适当减仓
+    "boll_lb", #BOLL 指标下轨线
+    "rsi_20", "close_20_sma", "close_60_sma", "close_120_sma", \
     "macd", "volume_20_sma", "volume_60_sma", "volume_120_sma"
 ]
 
@@ -53,14 +55,15 @@ SAC_PARAMS = {
 information_cols = TECHNICAL_INDICATORS_LIST + ["close", "day", "amount", "change", "daily_variance"]
 ENV_PARAMS = {
     "initial_amount": 1e6,
-    "hmax": 5000, 
+    "hmax": 5000, # speed money not trade stock num
     "currency": '￥',
     "buy_cost_pct": 3e-3,
     "sell_cost_pct": 3e-3,
     "cache_indicator_data": True,
     "daily_information_cols": information_cols, 
     "print_verbosity": 500,
-    "patient":True,
+    "patient": True,
+    "alpha": 0.5,
 }
 
 # tensorboard_log 路径
