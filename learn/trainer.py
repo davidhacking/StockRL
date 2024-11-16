@@ -23,9 +23,11 @@ class Trainer(object):
     """
 
     def __init__(self, model_name = 'a2c' , 
-                        total_timesteps = 200000) -> None:
+                        total_timesteps = 200000,
+                        multi_env = 0) -> None:
         self.model_name = model_name
         self.total_timesteps = total_timesteps
+        self.multi_env = multi_env
         self.train_dir = "train_file"
         self.data_dir = "data_file"
         self.create_train_dir()
@@ -78,7 +80,10 @@ class Trainer(object):
         e_train_gym = StockLearningEnv(df = train_data,
                                                     random_start = True,
                                                     **config.ENV_PARAMS)
-        env_train, _ = e_train_gym.get_sb_env()
+        if self.multi_env <= 0:
+            env_train, _ = e_train_gym.get_sb_env()
+        else:
+            env_train, _ = e_train_gym.get_multiproc_env(self.multi_env)
 
         e_trade_gym = StockLearningEnv(df = trade_data,
                                                     random_start = False,
@@ -111,10 +116,20 @@ def start_train():
         metavar="TOTAL_TIMESTEPS",
         type=int
     )
+    
+    parser.add_argument(
+        '--multi_env', '-me',
+        dest='multi_env',
+        default=0,
+        help='parallel train number',
+        metavar="MULTI_ENV",
+        type=int
+    )
 
     options = parser.parse_args()
     Trainer(model_name = options.model,
-            total_timesteps = options.total_timesteps).train()
+            total_timesteps = options.total_timesteps,
+            multi_env=options.multi_env).train()
 
 if __name__ == "__main__":
     start_train()
