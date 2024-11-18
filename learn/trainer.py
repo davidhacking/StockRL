@@ -24,12 +24,18 @@ class Trainer(object):
 
     def __init__(self, model_name = 'a2c' , 
                         total_timesteps = 200000,
-                        multi_env = 0) -> None:
+                        multi_env = 0,
+                        mode = 0) -> None:
         self.model_name = model_name
         self.total_timesteps = total_timesteps
         self.multi_env = multi_env
+        self.mode = mode
         self.train_dir = "train_file"
         self.data_dir = "data_file"
+        if mode == 1:
+            self.model_path = os.path.join(self.train_dir, "{}_evaluation.model".format(self.model_name))
+        else:
+            self.model_path = ""
         self.create_train_dir()
     
     def create_train_dir(self) -> None:
@@ -60,8 +66,12 @@ class Trainer(object):
     
     def get_data(self):
         """获取训练数据集和交易数据集"""
-        train_data_path = os.path.join(self.data_dir, "train.csv")
-        trade_data_path = os.path.join(self.data_dir, "trade.csv")
+        if self.mode == 0:
+            train_data_path = os.path.join(self.data_dir, "train.csv")
+            trade_data_path = os.path.join(self.data_dir, "trade.csv")
+        elif self.mode == 1:
+            train_data_path = config.stock_info_train_csv
+            trade_data_path = config.stock_info_test_csv
         if not (os.path.exists(train_data_path) or
                 os.path.exists(trade_data_path)):
             print("数据不存在，开始下载")
@@ -94,6 +104,8 @@ class Trainer(object):
 
     def save_model(self, model) -> None:
         model_path = os.path.join(self.train_dir, "{}.model".format(self.model_name))
+        if self.model_path != "":
+            model_path = self.model_path
         model.save(model_path)
 
 
@@ -106,6 +118,15 @@ def start_train():
         help='choose the model you want to train',
         metavar="MODEL",
         type=str
+    )
+    
+    parser.add_argument(
+        '--mode', '-d',
+        dest='mode',
+        default=0,
+        help='choose the mode you want to train',
+        metavar="MODE",
+        type=int
     )
 
     parser.add_argument(
@@ -129,11 +150,24 @@ def start_train():
     options = parser.parse_args()
     Trainer(model_name = options.model,
             total_timesteps = options.total_timesteps,
-            multi_env=options.multi_env).train()
+            multi_env=options.multi_env,
+            mode=options.mode).train()
 
 if __name__ == "__main__":
     import time
     start = time.time()
     start_train()
-    delta = time.time() - start
-    print("train delta=", delta)
+    end = time.time()
+    delta = end - start
+    
+    start_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start))
+    end_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end))
+    delta = end - start
+    total_seconds = int(delta)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    delta_str = f"{hours}H{minutes}min{seconds}s"
+
+    print("start=", start_time_str)
+    print("end=", end_time_str)
+    print("train delta=", delta_str)

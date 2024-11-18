@@ -289,6 +289,17 @@ class StockLearningEnv(gym.Env):
 
         return actions
 
+    def get_spend_and_rest_money(self, transactions):
+        sells = -np.clip(transactions, -np.inf, 0)
+        proceeds = np.dot(sells, self.closings)
+        costs = proceeds * self.sell_cost_pct
+        coh = self.cash_on_hand + proceeds # 计算现金的数量
+
+        buys = np.clip(transactions, 0, np.inf)
+        spend = np.dot(buys, self.closings)
+        costs += spend * self.buy_cost_pct
+        return spend, costs, coh
+
     def step(
         self, actions: np.ndarray
     ) -> Tuple[List, float, bool, dict]:
@@ -309,14 +320,7 @@ class StockLearningEnv(gym.Env):
             self.account_information["reward"].append(reward)
 
             transactions = self.get_transactions(actions)
-            sells = -np.clip(transactions, -np.inf, 0)
-            proceeds = np.dot(sells, self.closings)
-            costs = proceeds * self.sell_cost_pct
-            coh = begin_cash + proceeds # 计算现金的数量
-
-            buys = np.clip(transactions, 0, np.inf)
-            spend = np.dot(buys, self.closings)
-            costs += spend * self.buy_cost_pct
+            spend, costs, coh = self.get_spend_and_rest_money(transactions)
 
             if (spend + costs) > coh: # 如果买不起
                 if self.patient:

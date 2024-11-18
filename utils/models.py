@@ -51,6 +51,21 @@ class DRL_Agent():
                 print("回测完成!")
                 break
         return account_memory[0], actions_memory[0]
+    
+    @staticmethod
+    def predict_once(
+        model: Any, environment: Any, n = 3
+        ):
+        flag = False
+        while not flag and n > 0:
+            test_env, test_obs = environment.get_sb_env()
+            test_env.reset()
+            action, _ = model.predict(test_obs)
+            action = environment.get_transactions(action)
+            spend, costs, coh = environment.get_spend_and_rest_money()
+            flag = (spend + costs) > coh
+            n -= 1
+        return action, flag
 
     def __init__(self, env: Any) -> None:
         self.env = env

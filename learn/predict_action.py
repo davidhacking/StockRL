@@ -12,26 +12,15 @@ sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 from utils import config
 from utils.env import StockLearningEnv
 from utils.models import DRL_Agent
+from utils import stock_info_mgr
 
+class ActionPredictor(object):
 
-class Trader(object):
-    """用来测试训练结果的类
-
-    Attributes:
-        model_name: 强化学习的算法名称，用来调用指定的算法
-    """
-
-    def __init__(self, model_name: str = 'a2c',
-                        mode = 0) -> None:
+    def __init__(self, model_name: str = 'a2c') -> None:
         self.model_name = model_name
         self.train_dir = "train_file"
-        self.data_dir = "data_file"
         self.trade_dir = "trade_file"
-        self.mode = mode
-        if self.mode == 1:
-            self.model_path = os.path.join(self.train_dir, "{}_evaluation.model".format(self.model_name))
-        else:
-            self.model_path = ""
+        self.model_path = os.path.join(self.train_dir, "{}_evaluation.model".format(self.model_name))
         self.create_trade_dir()
     
     def create_trade_dir(self) -> None:
@@ -51,34 +40,29 @@ class Trader(object):
         model = self.get_model(agent)
 
         if model is not None:
-            df_account_value, df_actions = DRL_Agent.DRL_prediction(model = model, 
-                                                                    environment = e_trade_gym)
-            self.save_trade_result(df_account_value, df_actions)
-            self.print_trade_result(df_account_value, df_actions)
+            action, flag = DRL_Agent.predict_once(model = model, environment = e_trade_gym)
+            if flag:
+                print(action)
+                print(e_trade_gym.closings())
+                print(e_trade_gym.assets)
+            else:
+                print("预测失败")
         else:
             print("{} 文件夹中未找到 {} model，请先运行 trainer.py 或者将训练好的 {} model 放入 {} 中"
             .format(self.train_dir, self.model_name, self.model_name, self.train_dir))
     
     def get_trade_data(self):
         """获取交易数据集"""
-        if self.mode == 0:
-            trade_data_path = os.path.join(self.data_dir, "trade.csv")
-        elif self.mode == 1:
-            trade_data_path = config.stock_info_test_csv
-        if not os.path.exists(trade_data_path):
-            print("数据不存在，开始下载")
-            Data().pull_data()
-        
-        trade_data = pd.read_csv(trade_data_path)
-        print("数据读取成功!")
-        
-        return trade_data
+        mgr = stock_info_mgr.StockInfoMgr()
+        mgr.sync_data()
+        return mgr.get_latest_stock_info()
+
 
     def get_env(self, trade_data: pd.DataFrame) -> DummyVecEnv:
         """获取交易环境"""
         e_trade_gym = StockLearningEnv(df = trade_data,
-                                                    random_start = False,
-                                                    **config.ENV_PARAMS)
+                                    random_start = False,
+                                    **config.ENV_PARAMS)  # TODO 使用当前账户信息
         return e_trade_gym
     
     def get_model(self, agent):
@@ -121,7 +105,7 @@ class Trader(object):
         print(df_actions.tail())
 
 
-def start_trade():
+def start_predict_action():
     parser = ArgumentParser(description="set parameters for train mode")
     parser.add_argument(
         '--model', '-m',
@@ -131,18 +115,9 @@ def start_trade():
         metavar="MODEL",
         type=str
     )
-    
-    parser.add_argument(
-        '--mode', '-d',
-        dest='mode',
-        default=0,
-        help='choose the mode you want to train',
-        metavar="MODE",
-        type=int
-    )
 
     options = parser.parse_args()
-    Trader(model_name = options.model).trade()
+    ActionPredictor(model_name = options.model).trade()
 
 if __name__ == "__main__":
-    start_trade()
+    start_predict_action()

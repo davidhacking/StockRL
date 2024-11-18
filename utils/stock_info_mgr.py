@@ -3,11 +3,12 @@ import tushare as ts
 import pandas as pd
 from utils import config
 import time
-from datetime import datetime
 import os
 from futu import *
 from futu.common import *
 from utils.preprocessors import FeatureEngineer, split_data
+from dateutil.relativedelta import relativedelta
+from datetime import datetime, timedelta
 
 class StockInfoMgr(object):
     @staticmethod
@@ -29,6 +30,7 @@ class StockInfoMgr(object):
         self.stock_info_for_train = self.read_pd(config.stock_info_for_train_path)
         ts.set_token(config.Tushare_Tocken)
         self.ticker_list = config.SSE_50
+        self.split_data_days_before_now = 30
 
     def check_date(self):
         if self.stock_info.empty:
@@ -82,6 +84,7 @@ class StockInfoMgr(object):
         res["date"] = res.time_key.apply(lambda x: datetime.strptime(x[:4] + '-' + x[5:7] + '-' + x[8:10], "%Y-%m-%d"))
         res["day"] = res["date"].dt.dayofweek
         res["date"] = res.date.apply(lambda x: x.strftime("%Y-%m-%d"))
+        res['tic'] = res['tic'].apply(lambda x: '.'.join(x.split('.')[::-1]))
         res = res[['tic', 'date', 'open', 'high', 'low', 'close', 'volume', 'day']]
         return res
     
@@ -107,7 +110,9 @@ class StockInfoMgr(object):
     def sync_data(self):
         start_download_date = self.check_date()
         if start_download_date is None:
-            print("no need to sync data")
+            print("no need to sync data, update latest data from futu")
+            futu_stock_info = self.get_stock_from_futu()
+            self.merge_stock_info_and_process(futu_stock_info)
             return self.stock_info_for_train
         
         current_date = datetime.now().strftime('%Y%m%d')
@@ -124,6 +129,22 @@ class StockInfoMgr(object):
 
     def get_stock_info(self):
         return self.stock_info
+    
+    def get_latest_stock_info(self):
+        max_date = self.stock_info_for_train['date'].max()
+        res = self.stock_info_for_train[self.stock_info_for_train['date'] == max_date]
+        return res
+    
+    def save_train_and_test_data(self):
+        start_train_date = self.stock_info_for_train['date'].min()
+        end_train_date = (datetime.now() - relativedelta(months=1)).strftime('%Y-%m-%d')
+        end_test_date = (datetime.strptime(self.stock_info_for_train['date'].max(), '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        train_data = split_data(self.stock_info_for_train, start_train_date, end_train_date)
+        test_data = split_data(self.stock_info_for_train, end_train_date, end_test_date)
+        train_data.to_csv(config.stock_info_train_csv, index=False)
+        test_data.to_csv(config.stock_info_test_csv, index=False)
+        print("train_data", train_data.tail())
+        print("test_data", test_data.tail())
     
     def get_stock_info_for_train(self):
         return self.stock_info_for_train

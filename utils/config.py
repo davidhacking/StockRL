@@ -5,6 +5,8 @@ current_file_path = os.path.abspath(__file__)
 current_dir = os.path.dirname(current_file_path)
 stock_info_path = os.path.join(current_dir, '..', 'learn', 'data_file', "stock_info.csv")
 stock_info_for_train_path = os.path.join(current_dir, '..', 'learn', 'data_file', "stock_info_for_train.csv")
+stock_info_train_csv = os.path.join(current_dir, '..', 'learn', 'data_file', "stock_info_train.csv")
+stock_info_test_csv = os.path.join(current_dir, '..', 'learn', 'data_file', "stock_info_test.csv")
 stock_info_start_date = '20090101'
 # 从 Tushare 下载数据的区间
 Start_Date = '20090101'
