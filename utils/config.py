@@ -1,6 +1,11 @@
 # 使用 Tushare API 下载文件时所需要用到的 tocken
 Tushare_Tocken = "cd63754e5ee823494e89a68fedd374ed94a497e17142757096075add"
-
+import os
+current_file_path = os.path.abspath(__file__)
+current_dir = os.path.dirname(current_file_path)
+stock_info_path = os.path.join(current_dir, '..', 'learn', 'data_file', "stock_info.csv")
+stock_info_for_train_path = os.path.join(current_dir, '..', 'learn', 'data_file', "stock_info_for_train.csv")
+stock_info_start_date = '20090101'
 # 从 Tushare 下载数据的区间
 Start_Date = '20090101'
 End_Date = '20240101'
@@ -55,7 +60,7 @@ SAC_PARAMS = {
 information_cols = TECHNICAL_INDICATORS_LIST + ["close", "day", "amount", "change", "daily_variance"]
 ENV_PARAMS = {
     "initial_amount": 1e6,
-    "hmax": 5000, # speed money not trade stock num
+    "hmax": 15000, # speed money not trade stock num
     "currency": '￥',
     "buy_cost_pct": 3e-3,
     "sell_cost_pct": 3e-3,
@@ -64,6 +69,7 @@ ENV_PARAMS = {
     "print_verbosity": 500,
     "patient": True,
     "alpha": 0.5,
+    "normalize_buy_sell": True,
 }
 
 # tensorboard_log 路径

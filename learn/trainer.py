@@ -132,4 +132,8 @@ def start_train():
             multi_env=options.multi_env).train()
 
 if __name__ == "__main__":
+    import time
+    start = time.time()
     start_train()
+    delta = time.time() - start
+    print("train delta=", delta)

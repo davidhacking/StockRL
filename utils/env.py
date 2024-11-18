@@ -46,7 +46,8 @@ class StockLearningEnv(gym.Env):
         random_start: bool = True,
         patient: bool = False,
         currency: str = "￥",
-        alpha: float = 1.0
+        alpha: float = 1.0,
+        normalize_buy_sell: bool = False
     ) -> None:
         self.df = df
         self.stock_col = "tic"
@@ -62,6 +63,7 @@ class StockLearningEnv(gym.Env):
         self.buy_cost_pct = buy_cost_pct
         self.sell_cost_pct = sell_cost_pct
         self.daily_information_cols = daily_information_cols
+        self.normalize_buy_sell = normalize_buy_sell
         D = len(self.assets) # 股票数量
         b = 1 # 余额
         h = D # 每只股票的持仓信息
@@ -277,7 +279,8 @@ class StockLearningEnv(gym.Env):
         out = np.zeros_like(actions)
         zero_or_not = self.closings != 0
         actions = np.divide(actions, self.closings, out=out, where = zero_or_not)
-        
+        if self.normalize_buy_sell:
+            actions = np.sign(actions) * (np.abs(actions) // 100) * 100
         # 不能卖的比持仓的多
         actions = np.maximum(actions, -np.array(self.holdings))
 
