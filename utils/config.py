@@ -62,7 +62,7 @@ SAC_PARAMS = {
 information_cols = TECHNICAL_INDICATORS_LIST + ["close", "day", "amount", "change", "daily_variance"]
 ENV_PARAMS = {
     "initial_amount": 1e6,
-    "hmax": 15000, # speed money not trade stock num
+    "hmax": 5000, # speed money not trade stock num
     "currency": '￥',
     "buy_cost_pct": 3e-3,
     "sell_cost_pct": 3e-3,

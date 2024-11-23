@@ -10,9 +10,6 @@ from gym import spaces
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.logger import Logger, configure
 
-log_path = './logs/'  # 指定日志保存的路径
-logger = configure(log_path, ["stdout", "csv", "tensorboard"])
-
 class StockLearningEnv(gym.Env):
     """构建强化学习交易环境
 
@@ -137,7 +134,11 @@ class StockLearningEnv(gym.Env):
             res = []
             for asset in self.assets:
                 tmp_res = trunc_df[trunc_df[self.stock_col] == asset]
-                res += tmp_res.loc[date, cols].tolist()
+                try:
+                    res += tmp_res.loc[date, cols].tolist()
+                except Exception as e:
+                    print("debug", date, cols, tmp_res, self.stock_col, asset)
+                    raise ValueError("exception")
             assert len(res) == len(self.assets) * len(cols)
             return res
     
@@ -200,32 +201,6 @@ class StockLearningEnv(gym.Env):
         """terminal 的时候执行的操作"""
         state = self.state_memory[-1]
         self.log_step(reason=reason, terminal_reward=reward)
-        gl_pct = self.account_information["total_assets"][-1] / self.initial_amount
-        logger.record("environment/GainLoss_pct", (gl_pct - 1) * 100)
-        logger.record(
-            "environment/total_assets",
-            int(self.account_information["total_assets"][-1])
-        )
-        reward_pct = gl_pct
-        logger.record("environment/total_reward_pct", (reward_pct - 1) * 100)
-        logger.record("environment/total_trades", self.sum_trades)
-        logger.record(
-            "environment/avg_daily_trades",
-            self.sum_trades / (self.current_step)
-        )
-        logger.record(
-            "environment/avg_daily_trades_per_asset",
-            self.sum_trades / (self.current_step) / len(self.assets)
-        )
-        logger.record("environment/completed_steps", self.current_step)
-        logger.record(
-            "environment/sum_rewards", np.sum(self.account_information["reward"])
-        )
-        logger.record(
-            "environment/retreat_proportion",
-            self.account_information["total_assets"][-1] / self.max_total_assets
-        )
-
         return state, reward, True, {}
 
     def log_header(self) -> None:

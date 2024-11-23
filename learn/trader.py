@@ -108,8 +108,6 @@ class Trader(object):
     def print_trade_result(self, 
                     df_account_value: pd.DataFrame, 
                     df_actions: pd.DataFrame) -> None:
-        print("回测的时间窗口：{} 至 {}".format(config.End_Trade_Date, config.End_Test_Date))
-
         print("查看日账户净值")
         print("开始: ")
         print(df_account_value.head())
@@ -142,7 +140,7 @@ def start_trade():
     )
 
     options = parser.parse_args()
-    Trader(model_name = options.model).trade()
+    Trader(model_name=options.model, mode=options.mode).trade()
 
 if __name__ == "__main__":
     start_trade()
