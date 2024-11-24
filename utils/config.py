@@ -72,6 +72,7 @@ ENV_PARAMS = {
     "patient": True,
     "alpha": 0.5,
     "normalize_buy_sell": True,
+    "state_init_func": "AllCashStateIntiator",
 }
 
 # tensorboard_log 路径

@@ -9,6 +9,62 @@ from gym import spaces
 
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.logger import Logger, configure
+from abc import ABC, abstractmethod
+
+class StateIntiator(ABC):
+    def __init__(self, code2index):
+        self.code2index = code2index
+    @abstractmethod
+    def init_state(self, init_amount, stock_close_info):
+        raise ValueError("not implemented")
+
+class AllCashStateIntiator(StateIntiator):
+    def __init__(self, code2index):
+        super().__init__(code2index)
+    @abstractmethod
+    def init_state(self, init_amount, stock_close_info):
+        return [init_amount], [0] * len(stock_close_info)
+
+class RandomCashAndStateIntiator(StateIntiator):
+    def __init__(self, code2index):
+        super().__init__(code2index)
+    def init_state(self, init_amount, stock_close_info):
+        # 随机调整init_amount的值
+        new_init_amount = random.uniform(0.1, 2.0) * init_amount
+
+        # 随机划分新的init_amount为两部分
+        stock_assets = random.uniform(0, new_init_amount)
+        b = new_init_amount - stock_assets
+
+        # 对每只股票按100整数倍进行随机持仓
+        stock_indexes = range(len(stock_close_info))
+        h = [0] * len(stock_close_info)
+        remaining_stock_assets = stock_assets
+
+        # 先随机打乱股票顺序，避免第一只股票被优先分配过多份额
+        random.shuffle(stock_indexes)
+
+        for i in stock_indexes:
+            if remaining_stock_assets <= 0:
+                break
+            stock_price = stock_close_info[i]
+            max_shares = remaining_stock_assets // (stock_price * 100)
+            if max_shares > 0:
+                num_shares = random.randint(0, max_shares) * 100
+            else:
+                num_shares = 0
+            h[i] = num_shares
+            remaining_stock_assets -= num_shares * stock_price
+
+        # 重新调整每只股票的持仓数量以满足等式，同时确保是100的整数倍
+        total_value = sum([h[i] * stock_close_info[i] for i in stock_indexes])
+        b += stock_assets - total_value
+        return [b], h
+
+StateIntiatorFactory = {
+    "AllCashStateIntiator": AllCashStateIntiator,
+    "RandomCashAndStateIntiator": RandomCashAndStateIntiator
+}
 
 class StockLearningEnv(gym.Env):
     """构建强化学习交易环境
@@ -44,22 +100,29 @@ class StockLearningEnv(gym.Env):
         patient: bool = False,
         currency: str = "￥",
         alpha: float = 1.0,
-        normalize_buy_sell: bool = False
+        normalize_buy_sell: bool = False,
+        state_init_func: str = "AllCashStateIntiator"
     ) -> None:
         self.df = df
         self.stock_col = "tic"
         self.assets = df[self.stock_col].unique()
+        self.code2index = {
+            stock: i for i, stock in enumerate(self.assets)
+        }
+        self.state_init_func = StateIntiatorFactory[state_init_func](self.code2index)
         self.dates = df[date_col_name].sort_values().unique()
         self.random_start = random_start
         self.patient = patient
         self.currency = currency
         self.df = self.df.set_index(date_col_name)
         self.hmax = hmax
+        self.config_amount = initial_amount
         self.initial_amount = initial_amount
         self.print_verbosity = print_verbosity
         self.buy_cost_pct = buy_cost_pct
         self.sell_cost_pct = sell_cost_pct
         self.daily_information_cols = daily_information_cols
+        self.close_index = self.daily_information_cols.index('close')
         self.normalize_buy_sell = normalize_buy_sell
         D = len(self.assets) # 股票数量
         b = 1 # 余额
@@ -145,7 +208,6 @@ class StockLearningEnv(gym.Env):
     def reset(self) -> np.ndarray:
         self.seed()
         self.sum_trades = 0
-        self.max_total_assets = self.initial_amount
         if self.random_start:
             self.starting_point = random.choice(range(int(len(self.dates) * 0.5)))
         else:
@@ -162,11 +224,18 @@ class StockLearningEnv(gym.Env):
             "total_assets": [],
             "reward": []
         }
-        init_state = np.array(
-            [self.initial_amount] 
-            + [0] * len(self.assets)
-            + self.get_date_vector(self.date_index)
+        stock_info = self.get_date_vector(self.date_index)
+        stock_info_close = [row[self.close_index] for row in stock_info]
+        b, h = self.state_init_func.init_state(
+            self.config_amount, stock_info_close
         )
+        self.initial_amount = b[0] + sum([h[i] * stock_info_close[i] for i in range(len(stock_info_close))])
+        init_state = np.array(
+            b 
+            + h
+            + stock_info
+        )
+        self.max_total_assets = self.initial_amount
         self.state_memory.append(init_state)
         return init_state
 

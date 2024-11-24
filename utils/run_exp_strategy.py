@@ -352,8 +352,11 @@ class RunExpStrategy(object):
         self.exp_id = self.options.exp_id
         self.no_tushare = self.options.no_tushare
         self.need_pe = self.options.need_pe
+        self.state_init_func = self.options.state_init_func
         if self.need_pe:
             self.env_params["daily_information_cols"].append("pe_ratio")
+        if self.state_init_func != "":
+            self.env_params["state_init_func"] = self.state_init_func
 
     def add_params(self):
         parser = ArgumentParser(description="set parameters for run a stock exp strategy")
@@ -419,6 +422,14 @@ class RunExpStrategy(object):
             default="",
             help='usa_stock_list need define in config.py',
             metavar="USA_STOCK_LIST",
+            type=str
+        )
+        parser.add_argument(
+            '--state_init_func', '-sif',
+            dest='state_init_func',
+            default="AllCashStateIntiator",
+            help='state_init_func need define in config.py',
+            metavar="STATE_INIT_FUNC",
             type=str
         )
         parser.add_argument(
