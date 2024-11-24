@@ -190,6 +190,7 @@ class RunExpStrategy(object):
     def __init__(self):
         self.model_names = deepcopy(config.MODEL_LIST)
         self.env_params = deepcopy(config.ENV_PARAMS)
+        self.trade_env_params = deepcopy(config.ENV_PARAMS)
         self.rerun_test = False
 
     def create_exp_dir(self):
@@ -232,7 +233,7 @@ class RunExpStrategy(object):
                                         **self.env_params)
         env_train, _ = e_train_gym.get_sb_env()
         e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
-                                        **self.env_params)
+                                        **self.trade_env_params)
         env_trade, _ = e_trade_gym.get_sb_env()
         return env_train, env_trade
 
@@ -293,7 +294,7 @@ class RunExpStrategy(object):
         if not self.rerun_test and os.path.exists(account_value_path):
             return
         e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
-                                        **self.env_params)
+                                        **self.trade_env_params)
         agent = DRL_Agent(env=e_trade_gym)
         model = agent.get_model(model_name,  
                                 model_kwargs=config.__dict__["{}_PARAMS".format(model_name.upper())], 
@@ -355,6 +356,7 @@ class RunExpStrategy(object):
         self.state_init_func = self.options.state_init_func
         if self.need_pe:
             self.env_params["daily_information_cols"].append("pe_ratio")
+            self.trade_env_params["daily_information_cols"].append("pe_ratio")
         if self.state_init_func != "":
             self.env_params["state_init_func"] = self.state_init_func
 

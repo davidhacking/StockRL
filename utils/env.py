@@ -4,6 +4,7 @@ import pandas as pd
 import random
 from copy import deepcopy
 import gym
+import math
 import time
 from gym import spaces
 
@@ -21,9 +22,10 @@ class StateIntiator(ABC):
 class AllCashStateIntiator(StateIntiator):
     def __init__(self, code2index):
         super().__init__(code2index)
-    @abstractmethod
     def init_state(self, init_amount, stock_close_info):
-        return [init_amount], [0] * len(stock_close_info)
+        b = [init_amount]
+        h = [0] * len(stock_close_info)
+        return b, h 
 
 class RandomCashAndStateIntiator(StateIntiator):
     def __init__(self, code2index):
@@ -37,7 +39,7 @@ class RandomCashAndStateIntiator(StateIntiator):
         b = new_init_amount - stock_assets
 
         # 对每只股票按100整数倍进行随机持仓
-        stock_indexes = range(len(stock_close_info))
+        stock_indexes = list(range(len(stock_close_info)))
         h = [0] * len(stock_close_info)
         remaining_stock_assets = stock_assets
 
@@ -48,10 +50,12 @@ class RandomCashAndStateIntiator(StateIntiator):
             if remaining_stock_assets <= 0:
                 break
             stock_price = stock_close_info[i]
+            if math.isclose(stock_price, 0, abs_tol=1e-4):
+                continue
             max_shares = remaining_stock_assets // (stock_price * 100)
             if max_shares > 0:
                 num_shares = random.randint(0, max_shares) * 100
-            else:
+            else:   
                 num_shares = 0
             h[i] = num_shares
             remaining_stock_assets -= num_shares * stock_price
@@ -225,7 +229,8 @@ class StockLearningEnv(gym.Env):
             "reward": []
         }
         stock_info = self.get_date_vector(self.date_index)
-        stock_info_close = [row[self.close_index] for row in stock_info]
+        n = int(len(stock_info) / len(self.daily_information_cols))
+        stock_info_close = [stock_info[i*len(self.daily_information_cols)+self.close_index] for i in range(n)]
         b, h = self.state_init_func.init_state(
             self.config_amount, stock_info_close
         )
