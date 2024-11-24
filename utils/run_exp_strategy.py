@@ -11,7 +11,7 @@ from argparse import ArgumentParser
 from utils import config
 from utils import stock_info_mgr
 from utils.env import StockLearningEnv
-from utils.models import DRL_Agent
+from utils.models import DRL_Agent, UserStockAccountFactory
 from datetime import datetime
 import tushare as ts
 from utils.preprocessors import FeatureEngineer, split_data
@@ -106,6 +106,12 @@ def process_data_for_train(origin_stock_info):
     stock_info = stock_info.fillna(0)
     return stock_info
 
+def sum_ascii_chars(string):
+    total = 0
+    for char in string:
+        total += ord(char)
+    return total
+
 def get_daily_return(
     df: pd.DataFrame,
     value_col_name: str = "account_value"
@@ -192,6 +198,14 @@ class RunExpStrategy(object):
         self.env_params = deepcopy(config.ENV_PARAMS)
         self.trade_env_params = deepcopy(config.ENV_PARAMS)
         self.rerun_test = False
+        self.state_init_func = "AllCashStateIntiator"
+        self.user_stock_account = "LocalUserStockAccount"
+        self.user_stock_account_ins_dict = {}
+
+    def get_stock_profit(self):
+        return {
+            k: v.statisic() for k, v in self.user_stock_account_ins_dict.items() if v is not None
+        }
 
     def create_exp_dir(self):
         self.exp_dir = os.path.join(root_dir, f"exp_id_{self.exp_id}")
@@ -224,15 +238,20 @@ class RunExpStrategy(object):
         self.test_data = split_data(self.stock_info, end_train_date, end_test_date)
         self.train_data.to_csv(self.train_file, index=False)
         self.test_data.to_csv(self.test_file, index=False)
+        self.test_codes = self.test_data['tic'].unique()
+        self.test_code2index = {
+            code: index for index, code in enumerate(self.test_codes)
+        }
 
     def save_model(self, model, model_path):
         model.save(model_path)
 
-    def get_env(self):
+    def get_env(self, random_seed=0):
         e_train_gym = StockLearningEnv(df=self.train_data, random_start=True,
                                         **self.env_params)
         env_train, _ = e_train_gym.get_sb_env()
         e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
+                                       random_seed=random_seed,
                                         **self.trade_env_params)
         env_trade, _ = e_trade_gym.get_sb_env()
         return env_train, env_trade
@@ -272,7 +291,7 @@ class RunExpStrategy(object):
         model_path = os.path.join(self.exp_dir, "{}.model".format(model_name))
         if os.path.exists(model_path):
             return
-        env_train, env_trade = self.get_env()
+        env_train, env_trade = self.get_env(sum_ascii_chars(model_name))
         agent = DRL_Agent(env=env_train)
         model = agent.get_model(model_name,
                                 model_kwargs=config.__dict__["{}_PARAMS".format(model_name.upper())], 
@@ -294,6 +313,7 @@ class RunExpStrategy(object):
         if not self.rerun_test and os.path.exists(account_value_path):
             return
         e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
+                                       random_seed=sum_ascii_chars(model_name),
                                         **self.trade_env_params)
         agent = DRL_Agent(env=e_trade_gym)
         model = agent.get_model(model_name,  
@@ -303,15 +323,21 @@ class RunExpStrategy(object):
         model.load(model_path)
         if model is not None:
             df_account_value, df_actions = DRL_Agent.DRL_prediction(model=model, 
-                                                                    environment=e_trade_gym)
+                                                                    environment=e_trade_gym,
+                                                                    user_stock_account=self.user_stock_account_ins_dict[model_name])
             df_account_value.to_csv(account_value_path, index=False)
 
             actions_path = os.path.join(self.exp_dir, "actions_{}.csv".format(model_name))
             df_actions.to_csv(actions_path, index=False)
 
     def test_model(self):
-        with multiprocessing.Pool() as pool:
-            pool.map(self.test_model_by_model_name, self.model_names)
+        for model_name in self.model_names:
+            self.user_stock_account_ins_dict[model_name] = None
+            if isinstance(self.user_stock_account, str) and self.user_stock_account != "":
+                self.user_stock_account_ins_dict[model_name] = UserStockAccountFactory[self.user_stock_account](
+                    self.test_code2index
+                )
+            self.test_model_by_model_name(model_name)
 
     def plot_test_result(self):
         start_close_value = self.baseline_stocks.iloc[0]['close']
@@ -359,6 +385,7 @@ class RunExpStrategy(object):
             self.trade_env_params["daily_information_cols"].append("pe_ratio")
         if self.state_init_func != "":
             self.env_params["state_init_func"] = self.state_init_func
+        self.user_stock_account = self.options.user_stock_account
 
     def add_params(self):
         parser = ArgumentParser(description="set parameters for run a stock exp strategy")
@@ -440,6 +467,14 @@ class RunExpStrategy(object):
             default="SSE_50_INDEX",
             help='baseline_stocks need define in config.py',
             metavar="BASELINE_STOCKS",
+            type=str
+        )
+        parser.add_argument(
+            '--user_stock_account', '-usa',
+            dest='user_stock_account',
+            default="",
+            help='user_stock_account defined in models.py',
+            metavar="USER_STOCK_ACCOUNT",
             type=str
         )
         parser.add_argument(

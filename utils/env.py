@@ -105,7 +105,8 @@ class StockLearningEnv(gym.Env):
         currency: str = "￥",
         alpha: float = 1.0,
         normalize_buy_sell: bool = False,
-        state_init_func: str = "AllCashStateIntiator"
+        state_init_func: str = "AllCashStateIntiator",
+        random_seed: int = 0,
     ) -> None:
         self.df = df
         self.stock_col = "tic"
@@ -116,6 +117,7 @@ class StockLearningEnv(gym.Env):
         self.state_init_func = StateIntiatorFactory[state_init_func](self.code2index)
         self.dates = df[date_col_name].sort_values().unique()
         self.random_start = random_start
+        self.random_seed = random_seed
         self.patient = patient
         self.currency = currency
         self.df = self.df.set_index(date_col_name)
@@ -166,7 +168,8 @@ class StockLearningEnv(gym.Env):
     def seed(self, seed: Any = None) -> None:
         """设置随机种子"""
         if seed is None:
-            seed = int(round(time.time() * 1000))
+            seed = int(round(time.time() % 1000))
+        seed += self.random_seed
         random.seed(seed)
     
     @property
@@ -188,6 +191,12 @@ class StockLearningEnv(gym.Env):
     def closings(self) -> List:
         """每支股票当前的收盘价"""
         return np.array(self.get_date_vector(self.date_index, cols=["close"]))
+
+    def get_dates(self):
+        return self.dates[self.date_index]
+    
+    def get_closings(self):
+        return self.closings
 
     def get_date_vector(self, date: int, cols: List = None) -> List:
         """获取 date 那天的行情数据"""
@@ -318,7 +327,6 @@ class StockLearningEnv(gym.Env):
 
     def get_transactions(self, actions: np.ndarray) -> np.ndarray:
         """获取实际交易的股数"""
-        self.actions_memory.append(actions)
         actions = actions * self.hmax
 
         # 收盘价为 0 的不进行交易
@@ -367,6 +375,7 @@ class StockLearningEnv(gym.Env):
             self.account_information["total_assets"].append(begin_cash + assert_value)
             reward = self.get_reward()
             self.account_information["reward"].append(reward)
+            self.actions_memory.append(actions)
 
             transactions = self.get_transactions(actions)
             spend, costs, coh = self.get_spend_and_rest_money(transactions)

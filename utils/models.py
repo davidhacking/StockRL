@@ -13,6 +13,108 @@ from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckA
 from utils import config
 from utils.preprocessors import split_data
 from utils.env import StockLearningEnv
+from abc import ABC, abstractmethod
+from copy import deepcopy
+
+
+def create_dataframes(daily_profits, index2date):
+    # 创建一个空列表，用于存储每只股票的三列数据（stock_code, date, profits）
+    data_list_1 = []
+    # 创建一个空字典，用于存储每只股票的总收益（stock_code, total_profit）
+    total_profits_dict = {}
+
+    for stock_code, daily_profit_list in daily_profits.items():
+        for i, profit in enumerate(daily_profit_list):
+            date = index2date[i]
+            data_list_1.append([stock_code, date, profit])
+
+            if stock_code not in total_profits_dict:
+                total_profits_dict[stock_code] = profit
+            else:
+                total_profits_dict[stock_code] += profit
+
+    # 创建第一个DataFrame，包含stock_code, date, profits三列
+    df_1 = pd.DataFrame(data_list_1, columns=["stock_code", "date", "profits"])
+
+    # 创建第二个DataFrame，包含stock_code, total_profit两列
+    df_2 = pd.DataFrame(list(total_profits_dict.items()), columns=["stock_code", "total_profit"])
+    df_2 = df_2.sort_values(by="total_profit", ascending=False)
+    return df_1, df_2
+
+class UserStockAccount(ABC):
+    def __init__(self, code2index):
+        self.code2index = code2index # 股票代码到index的映射
+        self.b = 0 # 当前剩余现金
+        self.h = np.zeros(len(code2index), dtype=float) # 股票持有数量
+        self.closings = np.zeros(len(code2index), dtype=float) # 收盘价
+        self.action_history = [] # 交易记录
+        self.h_history = [] # 股票持有数量历史
+        self.b_history = [] # 剩余现金历史
+        self.closings_history = [] # 收盘价历史
+        self.total_assets_history = [] # 总资产历史
+        self.profits_history = [] # 每日收益
+    @abstractmethod
+    def curr_holds(self):
+        raise ValueError("not implemented")
+    
+    @abstractmethod
+    def take_action(self, action, **kwargs):
+        raise ValueError("not implemented")
+    
+    def statisic(self):
+        """
+        一只股票的收益情况
+        前一条价格p1，前一天持仓h1
+        当天价格p2，当天持仓h2，当日买卖数量n（n为负数表示卖出，并且买卖价格为p2）
+        则当日该股票的收益为：p2 * h1 - p1 * h1
+        """
+        num_days = len(self.closings_history)
+        daily_profits = {}
+        index2date = {}
+        for code, index in self.code2index.items():
+            daily_profits[code] = []
+            for i in range(1, num_days):
+                p1 = self.closings_history[i - 1][index]
+                h1 = self.h_history[i - 1][index]
+                p2 = self.closings_history[i][index]
+                h2 = self.h_history[i][index]
+                n = self.action_history[i][1][index]
+                index2date[i-1] = self.action_history[i][0]
+                daily_profits[code].append(p2 * h1 - p1 * h1)
+        return create_dataframes(daily_profits, index2date)
+
+class LocalUserStockAccount(UserStockAccount):
+    def __init__(self, code2index):
+        super().__init__(code2index)
+        self.b = 1e6
+
+    def curr_holds(self):
+        return self.b, self.h
+    
+    def take_action(self, date, action, **kwargs):
+        if len(self.action_history) == 0:
+            self.action_history.append(None)
+            self.h_history.append(self.h)
+            self.b_history.append(self.b)
+            self.total_assets_history.append(self.b)
+            self.closings_history.append(self.closings)
+            self.profits_history.append(0)
+        spend, costs, coh = kwargs["spend"], kwargs["costs"], kwargs["cash_and_sell_stock_money"]
+        self.closeings = kwargs["closings"]
+        flag = (spend + costs) > coh
+        self.action_history.append((date, action, flag, spend, costs, coh))
+        if not flag:
+            self.h = self.h + action
+            self.b = coh - spend - costs
+        self.h_history.append(self.h)
+        self.b_history.append(self.b)
+        self.closings_history.append(self.closeings)
+        self.total_assets_history.append(self.b + np.dot(self.h, self.closeings))
+        self.profits_history.append(self.total_assets_history[-1] - self.total_assets_history[-2])
+
+UserStockAccountFactory = {
+    "LocalUserStockAccount": LocalUserStockAccount,
+}
 
 MODELS = {"a2c": A2C, "ddpg": DDPG, "td3": TD3, "sac": SAC, "ppo": PPO}
 MODEL_KWARGS = {x: config.__dict__["{}_PARAMS".format(x.upper())] for x in MODELS.keys()}
@@ -31,9 +133,11 @@ class DRL_Agent():
 
     @staticmethod
     def DRL_prediction(
-        model: Any, environment: Any
+        model: Any, environment: Any,
+        user_stock_account: UserStockAccount = None,
         ) -> pd.DataFrame:
         """回测函数"""
+
         test_env, test_obs = environment.get_sb_env()
 
         account_memory = []
@@ -42,8 +146,22 @@ class DRL_Agent():
 
         len_environment = len(environment.df.index.unique())
         for i in range(len_environment):
-            action, _states = model.predict(test_obs)
-            test_obs, _, dones, _ = test_env.step(action)
+            predict_action, _states = model.predict(test_obs)
+            if user_stock_account is not None:
+                action = deepcopy(predict_action)
+                action = test_env.env_method("get_transactions", action)[0]
+                res = test_env.env_method("get_spend_and_rest_money", action)[0]
+                spend, costs, coh = res
+                closings = test_env.env_method(method_name="get_closings")[0]
+                user_stock_account.take_action(
+                    date=test_env.env_method(method_name="get_dates")[0],
+                    action=action[0],
+                    spend=spend[0],
+                    costs=costs[0],
+                    cash_and_sell_stock_money=coh[0],
+                    closings=closings
+                )
+            test_obs, _, dones, _ = test_env.step(predict_action)
             if i == (len_environment - 2):
                 account_memory = test_env.env_method(method_name="save_asset_memory")
                 actions_memory = test_env.env_method(method_name="save_action_memory")
