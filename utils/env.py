@@ -32,7 +32,7 @@ class RandomCashAndStateIntiator(StateIntiator):
         super().__init__(code2index)
     def init_state(self, init_amount, stock_close_info):
         # 随机调整init_amount的值
-        new_init_amount = random.uniform(0.1, 2.0) * init_amount
+        new_init_amount = random.uniform(0.5, 2.0) * init_amount
 
         # 随机划分新的init_amount为两部分
         stock_assets = random.uniform(0, new_init_amount)

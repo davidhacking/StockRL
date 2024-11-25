@@ -201,6 +201,7 @@ class RunExpStrategy(object):
         self.state_init_func = "AllCashStateIntiator"
         self.user_stock_account = "LocalUserStockAccount"
         self.user_stock_account_ins_dict = {}
+        self.initial_amount = 1e6
 
     def get_stock_profit(self):
         return {
@@ -341,7 +342,7 @@ class RunExpStrategy(object):
 
     def plot_test_result(self):
         start_close_value = self.baseline_stocks.iloc[0]['close']
-        self.baseline_stocks['processed_close'] = ((self.baseline_stocks['close'] - start_close_value)/start_close_value + 1) * 1e+6
+        self.baseline_stocks['processed_close'] = ((self.baseline_stocks['close'] - start_close_value)/start_close_value + 1) * self.initial_amount
         account_value_dict = {}
         for m in self.model_names:
             account_value_dict[m] = pd.read_csv(os.path.join(self.exp_dir, "account_value_{}.csv".format(m)))
@@ -350,7 +351,7 @@ class RunExpStrategy(object):
         }
         data['baseline'] = self.baseline_stocks['processed_close']
         backtest_curve = pd.DataFrame(data=data)
-        backtest_curve = backtest_curve.iloc[:-1].apply(lambda x : (x - 1e+6)/1e+6)
+        backtest_curve = backtest_curve.iloc[:-1].apply(lambda x : (x - self.initial_amount)/self.initial_amount)
         
         backtest_table = backtest_plot(self.baseline_stocks, account_value_dict,
                         value_col_name = 'total_assets')
@@ -386,6 +387,9 @@ class RunExpStrategy(object):
         if self.state_init_func != "":
             self.env_params["state_init_func"] = self.state_init_func
         self.user_stock_account = self.options.user_stock_account
+        self.initial_amount = self.options.initial_amount
+        self.env_params["initial_amount"] = self.initial_amount
+        self.trade_env_params["initial_amount"] = self.initial_amount
 
     def add_params(self):
         parser = ArgumentParser(description="set parameters for run a stock exp strategy")
@@ -403,6 +407,14 @@ class RunExpStrategy(object):
             default=1,
             help='set exp_id',
             metavar="EXP_ID",
+            type=int
+        )
+        parser.add_argument(
+            '--initial_amount', '-ia',
+            dest='initial_amount',
+            default=1e6,
+            help='set initial_amount',
+            metavar="INITIAL_AMOUNT",
             type=int
         )
         parser.add_argument(
