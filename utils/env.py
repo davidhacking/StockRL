@@ -11,6 +11,58 @@ from gym import spaces
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.logger import Logger, configure
 from abc import ABC, abstractmethod
+import threading
+from futu import *
+from futu.common import *
+
+def revert_code(code):
+    parts = code.split('.')
+    return f"{parts[1]}.{parts[0]}"
+
+class StockInfo:
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __init__(self):
+        quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
+        ret, data = quote_ctx.get_user_security("stock_rl")
+        if ret == RET_OK:
+            data['code'] = data['code'].apply(revert_code)
+            self.alot_info = pd.Series(data.lot_size.values, index=data.code).to_dict()
+            self.name2code = pd.Series(data.name.values, index=data.code).to_dict()
+        else:
+            print('error:', data)
+        quote_ctx.close()
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+    
+    def set(self, code, alot):
+        self.alot_info[code] = alot
+    
+    def get(self, code):
+        if code not in self.alot_info:
+            print(f"error: can not find code {code} in stock_rl")
+            return 100
+        return self.alot_info[code]
+    
+    def batch_get(self, codes):
+        values = [self.alot_info.get(code, 100) for code in codes]
+        return np.array(values, dtype=int)
+    
+    def set_name_code(self, name, code):
+        self.name2code[name] = code
+    
+    def get_code_by_name(self, name):
+        if name not in self.name2code:
+            print(f"error: can not find name {name} in stock_rl")
+            return 0
+        return self.name2code[name]
 
 class StateIntiator(ABC):
     def __init__(self, code2index):
@@ -107,10 +159,13 @@ class StockLearningEnv(gym.Env):
         normalize_buy_sell: bool = False,
         state_init_func: str = "AllCashStateIntiator",
         random_seed: int = 0,
+        fixed_fee: float = 0,
     ) -> None:
         self.df = df
+        self.fixed_fee = fixed_fee
         self.stock_col = "tic"
         self.assets = df[self.stock_col].unique()
+        self.assets_alot = StockInfo.get_instance().batch_get(self.assets)
         self.code2index = {
             stock: i for i, stock in enumerate(self.assets)
         }
@@ -259,7 +314,6 @@ class StockLearningEnv(gym.Env):
         """打印"""
         if terminal_reward is None:
             terminal_reward = self.account_information["reward"][-1]
-        
         assets = self.account_information["total_assets"][-1]
         tmp_retreat_ptc = assets / self.max_total_assets - 1
         retreat_pct = tmp_retreat_ptc if assets < self.max_total_assets else 0
@@ -337,7 +391,7 @@ class StockLearningEnv(gym.Env):
         zero_or_not = self.closings != 0
         actions = np.divide(actions, self.closings, out=out, where = zero_or_not)
         if self.normalize_buy_sell:
-            actions = np.sign(actions) * (np.abs(actions) // 100) * 100
+            actions = np.sign(actions) * (np.abs(actions) // self.assets_alot) * self.assets_alot
         # 不能卖的比持仓的多
         actions = np.maximum(actions, -np.array(self.holdings))
 
@@ -349,12 +403,12 @@ class StockLearningEnv(gym.Env):
     def get_spend_and_rest_money(self, transactions):
         sells = -np.clip(transactions, -np.inf, 0)
         proceeds = np.dot(sells, self.closings)
-        costs = proceeds * self.sell_cost_pct
+        costs = proceeds * self.sell_cost_pct + self.fixed_fee
         coh = self.cash_on_hand + proceeds # 计算现金的数量
 
         buys = np.clip(transactions, 0, np.inf)
         spend = np.dot(buys, self.closings)
-        costs += spend * self.buy_cost_pct
+        costs += spend * self.buy_cost_pct + self.fixed_fee
         return spend, costs, coh
 
     def step(
@@ -364,7 +418,7 @@ class StockLearningEnv(gym.Env):
         self.log_header()
         if(self.current_step + 1) % self.print_verbosity == 0:
             self.log_step(reason="update")
-        if self.date_index == len(self.dates) - 1:
+        if self.date_index == len(self.dates):
             return self.return_terminal(reward=self.get_reward())
         else:
             begin_cash = self.cash_on_hand
@@ -394,6 +448,8 @@ class StockLearningEnv(gym.Env):
             assert (spend + costs) <= coh
             coh = coh - spend - costs
             holdings_updated = self.holdings + transactions
+            if self.date_index+1 == len(self.dates):
+                return self.return_terminal(reward=self.get_reward())
             self.date_index += 1
             state = (
                 [coh] + list(holdings_updated) + self.get_date_vector(self.date_index)

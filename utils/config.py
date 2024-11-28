@@ -78,6 +78,25 @@ ENV_PARAMS = {
 # tensorboard_log 路径
 TENSORBOARD_LOG_DIR = f"tensorboard_log"
 
+def revert_code(code):
+    parts = code.split('.')
+    return f"{parts[1]}.{parts[0]}"
+
+MY_STOCKS = [
+    "09988.HK",
+    "09888.HK",
+    "09626.HK",
+    "03968.HK",
+    "03690.HK",
+    "03377.HK",
+    "02318.HK",
+    "01810.HK",
+    "01177.HK",
+    "00700.HK",
+]
+
+HK_INDEX = ["800000.HK"]
+
 # 上证 50 指数及其成分股
 SSE_50_INDEX = ["000016.SH"]
 SSE_50 = [

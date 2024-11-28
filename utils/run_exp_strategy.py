@@ -195,6 +195,7 @@ class RunExpStrategy(object):
     
     def __init__(self):
         self.model_names = deepcopy(config.MODEL_LIST)
+        self.test_model_names = deepcopy(config.MODEL_LIST)
         self.env_params = deepcopy(config.ENV_PARAMS)
         self.trade_env_params = deepcopy(config.ENV_PARAMS)
         self.rerun_test = False
@@ -202,194 +203,13 @@ class RunExpStrategy(object):
         self.user_stock_account = "LocalUserStockAccount"
         self.user_stock_account_ins_dict = {}
         self.initial_amount = 1e6
-
-    def get_stock_profit(self):
-        return {
-            k: v.statisic() for k, v in self.user_stock_account_ins_dict.items() if v is not None
-        }
-
-    def create_exp_dir(self):
-        self.exp_dir = os.path.join(root_dir, f"exp_id_{self.exp_id}")
-        self.train_file = os.path.join(self.exp_dir, "train.csv")
-        self.test_file = os.path.join(self.exp_dir, "test.csv")
-        self.all_stocks_data = os.path.join(self.exp_dir, "all_stocks_data.csv")
-        self.baseline_stocks_data = os.path.join(self.exp_dir, "baseline_stocks_data.csv")
-        os.makedirs(self.exp_dir, exist_ok=True)
-
-    def dump_exp_params(self):
-        args_dict = vars(self.options)
-        with open(os.path.join(self.exp_dir, "options.json"), 'w') as f:
-            json.dump(args_dict, f, indent=4)
-
-    def download_from_tushare(self):
-        self.origin_stock_info = download_from_tushare(self.stocks, self.start_date, self.end_date,
-                                                       need_pe=self.need_pe)
-
-    def download_from_futu(self):
-        start_date = self.futu_start_download_date
-        start_date = datetime.strptime(start_date, '%Y%m%d').strftime('%Y-%m-%d')
-        end_date = datetime.strptime(self.end_date, '%Y%m%d').strftime('%Y-%m-%d')
-        self.origin_stock_info = download_from_futu(self.stocks, start_date, end_date, self.need_pe)
-
-    def split_train_and_test_data(self):
-        start_train_date = self.stock_info['date'].min()
-        end_train_date = datetime.strptime(self.split_date, '%Y%m%d').strftime('%Y-%m-%d')
-        end_test_date = (datetime.strptime(self.stock_info['date'].max(), '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
-        self.train_data = split_data(self.stock_info, start_train_date, end_train_date)
-        self.test_data = split_data(self.stock_info, end_train_date, end_test_date)
-        self.train_data.to_csv(self.train_file, index=False)
-        self.test_data.to_csv(self.test_file, index=False)
-        self.test_codes = self.test_data['tic'].unique()
-        self.test_code2index = {
-            code: index for index, code in enumerate(self.test_codes)
-        }
-
-    def save_model(self, model, model_path):
-        model.save(model_path)
-
-    def get_env(self, random_seed=0):
-        e_train_gym = StockLearningEnv(df=self.train_data, random_start=True,
-                                        **self.env_params)
-        env_train, _ = e_train_gym.get_sb_env()
-        e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
-                                       random_seed=random_seed,
-                                        **self.trade_env_params)
-        env_trade, _ = e_trade_gym.get_sb_env()
-        return env_train, env_trade
-
-    def download_stock_data(self):
-        if os.path.exists(self.all_stocks_data):
-            self.stock_info = pd.read_csv(self.all_stocks_data)
-            return
-        self.futu_start_download_date = self.start_date
-        if not self.no_tushare:
-            self.download_from_tushare()
-            max_date = get_max_date(self.origin_stock_info)
-            if max_date >= self.end_date:
-                self.stock_info = process_data_for_train(self.origin_stock_info)
-                self.stock_info.to_csv(self.all_stocks_data, index=False)
-                return
-            self.futu_start_download_date = max_date
-        self.download_from_futu()
-        if self.need_pe:
-            self.pe_data = self.origin_stock_info[['date', 'tic', 'pe_ratio']]
-            self.origin_stock_info = self.origin_stock_info.drop(columns=['pe_ratio'])
-        self.stock_info = process_data_for_train(self.origin_stock_info)
-        if self.need_pe:
-            self.stock_info = pd.merge(self.stock_info, self.pe_data, on=['date', 'tic'])
-        self.stock_info = fill_na_stock(self.stock_info)
-        self.stock_info = self.stock_info.sort_values(by=['date', 'tic']).reset_index(drop=True)
-        self.stock_info.to_csv(self.all_stocks_data, index=False)
-
-    def download_baseline_stocks(self):
-        if os.path.exists(self.baseline_stocks_data):
-            self.baseline_stocks = pd.read_csv(self.baseline_stocks_data)
-            return
-        self.baseline_stocks = download_from_tushare(self.baseline_stocks_list, self.split_date, self.end_date, True)
-        self.baseline_stocks.to_csv(self.baseline_stocks_data, index=False)
-
-    def train_by_model_name(self, model_name):
-        model_path = os.path.join(self.exp_dir, "{}.model".format(model_name))
-        if os.path.exists(model_path):
-            return
-        env_train, env_trade = self.get_env(sum_ascii_chars(model_name))
-        agent = DRL_Agent(env=env_train)
-        model = agent.get_model(model_name,
-                                model_kwargs=config.__dict__["{}_PARAMS".format(model_name.upper())], 
-                                verbose=0)
-        model.learn(total_timesteps=self.total_timesteps, 
-                    eval_env=env_trade, 
-                    eval_freq=500,
-                    log_interval=1, 
-                    tb_log_name='env_cashpenalty_highlr',
-                    n_eval_episodes=1)
-        self.save_model(model, model_path)
-
-    def train_model(self):
-        with multiprocessing.Pool() as pool:
-            pool.map(self.train_by_model_name, self.model_names)
-
-    def test_model_by_model_name(self, model_name):
-        account_value_path = os.path.join(self.exp_dir, "account_value_{}.csv".format(model_name))
-        if not self.rerun_test and os.path.exists(account_value_path):
-            return
-        e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
-                                       random_seed=sum_ascii_chars(model_name),
-                                        **self.trade_env_params)
-        agent = DRL_Agent(env=e_trade_gym)
-        model = agent.get_model(model_name,  
-                                model_kwargs=config.__dict__["{}_PARAMS".format(model_name.upper())], 
-                                verbose=0)
-        model_path = os.path.join(self.exp_dir, "{}.model".format(model_name))
-        model.load(model_path)
-        if model is not None:
-            df_account_value, df_actions = DRL_Agent.DRL_prediction(model=model, 
-                                                                    environment=e_trade_gym,
-                                                                    user_stock_account=self.user_stock_account_ins_dict[model_name])
-            df_account_value.to_csv(account_value_path, index=False)
-
-            actions_path = os.path.join(self.exp_dir, "actions_{}.csv".format(model_name))
-            df_actions.to_csv(actions_path, index=False)
-
-    def test_model(self):
-        for model_name in self.model_names:
-            self.user_stock_account_ins_dict[model_name] = None
-            if isinstance(self.user_stock_account, str) and self.user_stock_account != "":
-                self.user_stock_account_ins_dict[model_name] = UserStockAccountFactory[self.user_stock_account](
-                    self.test_code2index
-                )
-            self.test_model_by_model_name(model_name)
-
-    def plot_test_result(self):
-        start_close_value = self.baseline_stocks.iloc[0]['close']
-        self.baseline_stocks['processed_close'] = ((self.baseline_stocks['close'] - start_close_value)/start_close_value + 1) * self.initial_amount
-        account_value_dict = {}
-        for m in self.model_names:
-            account_value_dict[m] = pd.read_csv(os.path.join(self.exp_dir, "account_value_{}.csv".format(m)))
-        data = {
-            m: account_value_dict[m]['total_assets'] for m in self.model_names
-        }
-        data['baseline'] = self.baseline_stocks['processed_close']
-        backtest_curve = pd.DataFrame(data=data)
-        backtest_curve = backtest_curve.iloc[:-1].apply(lambda x : (x - self.initial_amount)/self.initial_amount)
-        
-        backtest_table = backtest_plot(self.baseline_stocks, account_value_dict,
-                        value_col_name = 'total_assets')
-        return backtest_table, backtest_curve
-    
-    def check_and_build_params(self):
-        try:
-            self.start_date = datetime.strptime(self.options.start_date, "%Y%m%d")
-            self.end_date = datetime.strptime(self.options.end_date, "%Y%m%d")
-            self.split_date = datetime.strptime(self.options.split_date, "%Y%m%d")
-        except ValueError:
-            raise ValueError("date format error YYYYMMDD")
-        self.start_date = self.options.start_date
-        self.end_date = self.options.end_date
-        self.split_date = self.options.split_date
-
-        if not (self.start_date < self.split_date < self.end_date):
-            raise ValueError("need match condition end_date > split_date > start_date")
-        if self.options.a_stock_list not in config.__dict__:
-            raise ValueError("a_stock_list not in config")
-        self.stocks = config.__dict__[self.options.a_stock_list]
-        if self.options.baseline_stocks not in config.__dict__:
-            raise ValueError("baseline_stocks not in config")
-        self.baseline_stocks_list = config.__dict__[self.options.baseline_stocks]
-        self.total_timesteps = self.options.total_timesteps
-        self.exp_id = self.options.exp_id
-        self.no_tushare = self.options.no_tushare
-        self.need_pe = self.options.need_pe
-        self.state_init_func = self.options.state_init_func
-        if self.need_pe:
-            self.env_params["daily_information_cols"].append("pe_ratio")
-            self.trade_env_params["daily_information_cols"].append("pe_ratio")
-        if self.state_init_func != "":
-            self.env_params["state_init_func"] = self.state_init_func
-        self.user_stock_account = self.options.user_stock_account
-        self.initial_amount = self.options.initial_amount
-        self.env_params["initial_amount"] = self.initial_amount
-        self.trade_env_params["initial_amount"] = self.initial_amount
+        self.hmax = 5000
+        self.fixed_fee = 0
+        self.redownload_data = False
+        self.split_date = datetime.now().strftime("%Y%m%d")
+        self.end_date = datetime.now().strftime("%Y%m%d")
+        self.stocks = config.__dict__['SSE_50']
+        self.baseline_stocks_list = config.__dict__['SSE_50_INDEX']
 
     def add_params(self):
         parser = ArgumentParser(description="set parameters for run a stock exp strategy")
@@ -418,6 +238,22 @@ class RunExpStrategy(object):
             type=int
         )
         parser.add_argument(
+            '--hmax', '-hm',
+            dest='hmax',
+            default=5000,
+            help='set hmax',
+            metavar="HMAX",
+            type=int
+        )
+        parser.add_argument(
+            '--fixed_fee', '-ff',
+            dest='fixed_fee',
+            default=0,
+            help='set fixed_fee',
+            metavar="FIXED_FEE",
+            type=float
+        )
+        parser.add_argument(
             '--start_date', '-startd',
             dest='start_date',
             default="20090101",
@@ -428,7 +264,7 @@ class RunExpStrategy(object):
         parser.add_argument(
             '--end_date', '-ed',
             dest='end_date',
-            default="20241122",
+            default="",
             help='set end_date',
             metavar="END_DATE",
             type=str
@@ -436,7 +272,7 @@ class RunExpStrategy(object):
         parser.add_argument(
             '--split_date', '-splitd',
             dest='split_date',
-            default="20230101",
+            default="",
             help='set split_date',
             metavar="SPLIT_DATE",
             type=str
@@ -490,6 +326,14 @@ class RunExpStrategy(object):
             type=str
         )
         parser.add_argument(
+            '--test_model_names', '-tmn',
+            dest='test_model_names',
+            default="",
+            help='test_model_names defined in models.py',
+            metavar="TEST_MODEL_NAMES",
+            type=str
+        )
+        parser.add_argument(
             '--no_tushare', '-nt',
             action='store_true',
             default=True,
@@ -501,7 +345,224 @@ class RunExpStrategy(object):
             default=True,
             help='no download_from_tushare'
         )
+        parser.add_argument(
+            '--redownload_data', '-rd',
+            action='store_true',
+            default=self.redownload_data,
+            help='no download_from_tushare'
+        )
         self.options = parser.parse_args()
+    
+    def check_and_build_params(self):
+        try:
+            self.start_date = datetime.strptime(self.options.start_date, "%Y%m%d")
+            if self.options.end_date == "":
+                self.options.end_date = datetime.now().strftime("%Y%m%d")
+            self.end_date = datetime.strptime(self.options.end_date, "%Y%m%d")
+            if self.options.split_date == "":
+                self.options.split_date = datetime.now().strftime("%Y%m%d")
+            self.split_date = datetime.strptime(self.options.split_date, "%Y%m%d")
+        except ValueError:
+            raise ValueError("date format error YYYYMMDD")
+        self.start_date = self.options.start_date
+        self.end_date = self.options.end_date
+        self.split_date = self.options.split_date
+        self.redownload_data = self.options.redownload_data
+
+        if not (self.start_date < self.split_date <= self.end_date):
+            raise ValueError("need match condition end_date > split_date > start_date")
+        if self.options.a_stock_list not in config.__dict__:
+            raise ValueError("a_stock_list not in config")
+        self.stocks = config.__dict__[self.options.a_stock_list]
+        if self.options.baseline_stocks not in config.__dict__:
+            raise ValueError("baseline_stocks not in config")
+        self.baseline_stocks_list = config.__dict__[self.options.baseline_stocks]
+        self.total_timesteps = self.options.total_timesteps
+        self.exp_id = self.options.exp_id
+        self.no_tushare = self.options.no_tushare
+        self.need_pe = self.options.need_pe
+        self.state_init_func = self.options.state_init_func
+        if self.need_pe:
+            self.env_params["daily_information_cols"].append("pe_ratio")
+            self.trade_env_params["daily_information_cols"].append("pe_ratio")
+        if self.state_init_func != "":
+            self.env_params["state_init_func"] = self.state_init_func
+        self.user_stock_account = self.options.user_stock_account
+        self.initial_amount = self.options.initial_amount
+        self.hmax = self.options.hmax
+        self.fixed_fee = self.options.fixed_fee
+        self.env_params["initial_amount"] = self.initial_amount
+        self.trade_env_params["initial_amount"] = self.initial_amount
+        self.env_params["hmax"] = self.hmax
+        self.trade_env_params["hmax"] = self.hmax
+        self.env_params["fixed_fee"] = self.fixed_fee
+        self.trade_env_params["fixed_fee"] = self.fixed_fee
+        if self.options.test_model_names != "":
+            self.test_model_names = self.options.test_model_names.split(",")
+
+    def get_stock_profit(self):
+        return {
+            k: v.statisic() for k, v in self.user_stock_account_ins_dict.items() if v is not None
+        }
+
+    def create_exp_dir(self):
+        self.exp_dir = os.path.join(root_dir, f"exp_id_{self.exp_id}")
+        self.train_file = os.path.join(self.exp_dir, "train.csv")
+        self.test_file = os.path.join(self.exp_dir, "test.csv")
+        self.all_stocks_data = os.path.join(self.exp_dir, "all_stocks_data.csv")
+        self.baseline_stocks_data = os.path.join(self.exp_dir, "baseline_stocks_data.csv")
+        os.makedirs(self.exp_dir, exist_ok=True)
+
+    def dump_exp_params(self):
+        args_dict = vars(self.options)
+        with open(os.path.join(self.exp_dir, "options.json"), 'w') as f:
+            json.dump(args_dict, f, indent=4)
+
+    def download_from_tushare(self):
+        self.origin_stock_info = download_from_tushare(self.stocks, self.start_date, self.end_date,
+                                                       need_pe=self.need_pe)
+
+    def download_from_futu(self):
+        start_date = self.futu_start_download_date
+        start_date = datetime.strptime(start_date, '%Y%m%d').strftime('%Y-%m-%d')
+        end_date = datetime.strptime(self.end_date, '%Y%m%d').strftime('%Y-%m-%d')
+        self.origin_stock_info = download_from_futu(self.stocks, start_date, end_date, self.need_pe)
+
+    def split_train_and_test_data(self):
+        start_train_date = self.stock_info['date'].min()
+        end_train_date = datetime.strptime(self.split_date, '%Y%m%d').strftime('%Y-%m-%d')
+        end_test_date = (datetime.strptime(self.stock_info['date'].max(), '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        self.train_data = split_data(self.stock_info, start_train_date, end_train_date)
+        self.test_data = split_data(self.stock_info, end_train_date, end_test_date)
+        self.train_data.to_csv(self.train_file, index=False)
+        self.test_data.to_csv(self.test_file, index=False)
+        self.test_codes = self.test_data['tic'].unique()
+        self.test_code2index = {
+            code: index for index, code in enumerate(self.test_codes)
+        }
+
+    def save_model(self, model, model_path):
+        model.save(model_path)
+
+    def get_env(self, random_seed=0):
+        e_train_gym = StockLearningEnv(df=self.train_data, random_start=True,
+                                        **self.env_params)
+        print(f"dates={self.train_data['date'].sort_values().unique()}")
+        env_train, _ = e_train_gym.get_sb_env()
+        e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
+                                       random_seed=random_seed,
+                                        **self.trade_env_params)
+        env_trade, _ = e_trade_gym.get_sb_env()
+        return env_train, env_trade
+    
+    def build_tic_close_dict(self):
+        max_date = self.stock_info['date'].max()
+        filtered_stock_info = self.stock_info[self.stock_info['date'] == max_date]
+        self.last_close_dict = dict(zip(filtered_stock_info['tic'], filtered_stock_info['close']))
+
+    def download_stock_data(self):
+        if not self.redownload_data and os.path.exists(self.all_stocks_data):
+            self.stock_info = pd.read_csv(self.all_stocks_data)
+            return
+        self.futu_start_download_date = self.start_date
+        if not self.no_tushare:
+            self.download_from_tushare()
+            max_date = get_max_date(self.origin_stock_info)
+            if max_date >= self.end_date:
+                self.stock_info = process_data_for_train(self.origin_stock_info)
+                self.stock_info.to_csv(self.all_stocks_data, index=False)
+                return
+            self.futu_start_download_date = max_date
+        self.download_from_futu()
+        if self.need_pe:
+            self.pe_data = self.origin_stock_info[['date', 'tic', 'pe_ratio']]
+            self.origin_stock_info = self.origin_stock_info.drop(columns=['pe_ratio'])
+        self.stock_info = process_data_for_train(self.origin_stock_info)
+        if self.need_pe:
+            self.stock_info = pd.merge(self.stock_info, self.pe_data, on=['date', 'tic'])
+        self.stock_info = fill_na_stock(self.stock_info)
+        self.stock_info = self.stock_info.sort_values(by=['date', 'tic']).reset_index(drop=True)
+        self.stock_info.to_csv(self.all_stocks_data, index=False)
+        self.build_tic_close_dict()
+
+    def download_baseline_stocks(self):
+        if not self.redownload_data and os.path.exists(self.baseline_stocks_data):
+            self.baseline_stocks = pd.read_csv(self.baseline_stocks_data)
+            return
+        start_date = datetime.strptime(self.split_date, '%Y%m%d').strftime('%Y-%m-%d')
+        end_date = datetime.strptime(self.end_date, '%Y%m%d').strftime('%Y-%m-%d')
+        self.baseline_stocks = download_from_futu(self.baseline_stocks_list, start_date, end_date)
+        self.baseline_stocks.to_csv(self.baseline_stocks_data, index=False)
+
+    def train_by_model_name(self, model_name):
+        model_path = os.path.join(self.exp_dir, "{}.model".format(model_name))
+        if os.path.exists(model_path):
+            return
+        env_train, env_trade = self.get_env(sum_ascii_chars(model_name))
+        agent = DRL_Agent(env=env_train)
+        model = agent.get_model(model_name,
+                                model_kwargs=config.__dict__["{}_PARAMS".format(model_name.upper())], 
+                                verbose=0)
+        model.learn(total_timesteps=self.total_timesteps, 
+                    eval_env=env_trade, 
+                    eval_freq=500,
+                    log_interval=1, 
+                    tb_log_name='env_cashpenalty_highlr',
+                    n_eval_episodes=1)
+        self.save_model(model, model_path)
+
+    def train_model(self):
+        with multiprocessing.Pool() as pool:
+            pool.map(self.train_by_model_name, self.model_names)
+
+    def test_model_by_model_name(self, model_name):
+        account_value_path = os.path.join(self.exp_dir, "account_value_{}.csv".format(model_name))
+        if not self.rerun_test and os.path.exists(account_value_path):
+            return
+        e_trade_gym = StockLearningEnv(df=self.test_data, random_start=False,
+                                       random_seed=sum_ascii_chars(model_name),
+                                        **self.trade_env_params)
+        agent = DRL_Agent(env=e_trade_gym)
+        model = agent.get_model(model_name,  
+                                model_kwargs=config.__dict__["{}_PARAMS".format(model_name.upper())], 
+                                verbose=0)
+        model_path = os.path.join(self.exp_dir, "{}.model".format(model_name))
+        model.load(model_path)
+        if model is not None:
+            df_account_value, df_actions = DRL_Agent.DRL_prediction(model=model, 
+                                                                    environment=e_trade_gym,
+                                                                    user_stock_account=self.user_stock_account_ins_dict[model_name])
+            df_account_value.to_csv(account_value_path, index=False)
+
+            actions_path = os.path.join(self.exp_dir, "actions_{}.csv".format(model_name))
+            df_actions.to_csv(actions_path, index=False)
+
+    def test_model(self):
+        for model_name in self.test_model_names:
+            self.user_stock_account_ins_dict[model_name] = None
+            if isinstance(self.user_stock_account, str) and self.user_stock_account != "":
+                self.user_stock_account_ins_dict[model_name] = UserStockAccountFactory[self.user_stock_account](
+                    self.test_code2index
+                )
+                self.user_stock_account_ins_dict[model_name].close_dict = self.last_close_dict
+            self.test_model_by_model_name(model_name)
+
+    def plot_test_result(self):
+        start_close_value = self.baseline_stocks.iloc[0]['close']
+        self.baseline_stocks['processed_close'] = ((self.baseline_stocks['close'] - start_close_value)/start_close_value + 1) * self.initial_amount
+        account_value_dict = {}
+        for m in self.test_model_names:
+            account_value_dict[m] = pd.read_csv(os.path.join(self.exp_dir, "account_value_{}.csv".format(m)))
+        data = {
+            m: account_value_dict[m]['total_assets'] for m in self.model_names
+        }
+        data['baseline'] = self.baseline_stocks['processed_close']
+        backtest_curve = pd.DataFrame(data=data)
+        backtest_curve = backtest_curve.iloc[:-1].apply(lambda x : (x - self.initial_amount)/self.initial_amount)
+        
+        backtest_table = backtest_plot(self.baseline_stocks, account_value_dict,
+                        value_col_name = 'total_assets')
+        return backtest_table, backtest_curve
 
     def main(self):
         self.add_params()

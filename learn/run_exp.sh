@@ -1,3 +1,2 @@
-python -u ./run_exp.py --exp_id 5 --start_date 20090101 --end_date 20241122 \
-    --split_date 20240901 --no_tushare --need_pe --state_init_func RandomCashAndStateIntiator \
-    --initial_amount 250000
+python -u ./run_exp.py --exp_id 7 --start_date 20090101 --split_date 20241126 --end_date 20241126 --no_tushare --need_pe --state_init_func RandomCashAndStateIntiator \
+    --initial_amount 1000000 --a_stock_list SSE_50 --baseline_stocks SSE_50_INDEX --hmax 5000

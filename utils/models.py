@@ -15,7 +15,8 @@ from utils.preprocessors import split_data
 from utils.env import StockLearningEnv
 from abc import ABC, abstractmethod
 from copy import deepcopy
-
+from futu import *
+from futu.common import *
 
 def create_dataframes(daily_profits, index2date):
     # 创建一个空列表，用于存储每只股票的三列数据（stock_code, date, profits）
@@ -112,8 +113,81 @@ class LocalUserStockAccount(UserStockAccount):
         self.total_assets_history.append(self.b + np.dot(self.h, self.closeings))
         self.profits_history.append(self.total_assets_history[-1] - self.total_assets_history[-2])
 
+def revert_code(code):
+    parts = code.split('.')
+    return f"{parts[1]}.{parts[0]}"
+
+def rebuild_h(h, code2index, qty_info):
+    new_h = np.zeros_like(h)
+    for code, qty in qty_info.items():
+        if code in code2index:
+            index = code2index[code]
+            new_h[index] = qty
+
+    return new_h
+
+def get_buylist_and_selllist(action, code2index):
+    buylist = {}
+    selllist = {}
+
+    for code, index in code2index.items():
+        qty = action[index]
+        reverted_code = revert_code(code)
+
+        if qty > 0:
+            buylist[reverted_code] = qty
+        elif qty < 0:
+            selllist[reverted_code] = abs(qty)
+
+    return buylist, selllist
+
+def buy_cn_stock(code, price, qty, flag):
+    print(f"buy_cn_stock code={code} qty={qty} price={price}, flag={flag}")
+    trd_ctx = OpenSecTradeContext(filter_trdmarket=TrdMarket.CN, host='127.0.0.1', port=11111, security_firm=SecurityFirm.FUTUSECURITIES)
+    ret, data = trd_ctx.unlock_trade('')  # 若使用真实账户下单，需先对账户进行解锁。此处示例为模拟账户下单，也可省略解锁。
+    if ret != RET_OK:
+        print("unlock_trade ret=", ret)
+        return
+    flag = TrdSide.BUY if flag else TrdSide.SELL
+    ret, data = trd_ctx.place_order(price=price, qty=qty, code=code, trd_side=flag, trd_env=TrdEnv.SIMULATE)
+    if ret != RET_OK:
+        print(f"buy place_order code={code} ret={ret}")
+    trd_ctx.close()
+    time.sleep(5)
+
+class FutuUserStockAccount(UserStockAccount):
+    def __init__(self, code2index):
+        super().__init__(code2index)
+
+    def curr_holds(self):
+        trd_ctx = OpenSecTradeContext(filter_trdmarket=TrdMarket.CN, host='127.0.0.1', port=11111, security_firm=SecurityFirm.FUTUSECURITIES)
+        ret, data = trd_ctx.accinfo_query(trd_env=TrdEnv.SIMULATE)
+        if ret != RET_OK:
+            print("accinfo_query ret=", ret)
+            return self.b, self.h
+        self.b = data["cash"][0]
+        ret, data = trd_ctx.position_list_query(trd_env=TrdEnv.SIMULATE)
+        if ret != RET_OK:
+            print("position_list_query ret=", ret)
+            return self.b, self.h
+        data['code'] = data['code'].apply(revert_code)
+        qty_info = pd.Series(data.qty.values, index=data.code).to_dict()
+        self.h = rebuild_h(self.h, self.code2index, qty_info)
+        print(f"FutuUserStockAccount cash={self.b} qty_info={qty_info}")
+        return self.b, self.h
+    
+    def take_action(self, date, action, **kwargs):
+        buys, sells = get_buylist_and_selllist(action, self.code2index)
+        for code, qty in sells.items():
+            price = self.close_dict.get(revert_code(code), 0)
+            buy_cn_stock(code, price, qty, False)
+        for code, qty in buys.items():
+            price = self.close_dict.get(revert_code(code), 0)
+            buy_cn_stock(code, price, qty, True)
+
 UserStockAccountFactory = {
     "LocalUserStockAccount": LocalUserStockAccount,
+    "FutuUserStockAccount": FutuUserStockAccount,
 }
 
 MODELS = {"a2c": A2C, "ddpg": DDPG, "td3": TD3, "sac": SAC, "ppo": PPO}
@@ -143,7 +217,14 @@ class DRL_Agent():
         account_memory = []
         actions_memory = []
         test_env.reset()
-
+        if user_stock_account is not None:
+            print(f"before obs={test_obs[0]}")
+            b, h = user_stock_account.curr_holds()
+            start_index = 1 + len(h)
+            stock_info = test_obs[0][start_index:]
+            arr = [b] + list(h) + list(stock_info)
+            test_obs[0] = np.array(arr)
+            print(f"after obs={test_obs[0]}")
         len_environment = len(environment.df.index.unique())
         for i in range(len_environment):
             predict_action, _states = model.predict(test_obs)
