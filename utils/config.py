@@ -75,7 +75,7 @@ ENV_PARAMS = {
     "state_init_func": "AllCashStateIntiator",
 }
 
-# tensorboard_log 路径
+# tensorboard_log 路径 Python: Launch Tensorboard
 TENSORBOARD_LOG_DIR = f"tensorboard_log"
 
 def revert_code(code):
