@@ -183,6 +183,7 @@ class FutuUserStockAccount(UserStockAccount):
         return self.b, self.h
     
     def take_action(self, date, action, **kwargs):
+        print("close_dict=", self.close_dict)
         buys, sells = get_buylist_and_selllist(action, self.code2index)
         for code, qty in sells.items():
             price = self.close_dict.get(revert_code(code), 0)
@@ -199,9 +200,12 @@ class ThsUserStockAccount(UserStockAccount):
         self.b = ths_trader.balance_info()
         qty_info = ths_trader.position_info()
         self.h = rebuild_h(self.h, self.code2index, qty_info)
+        print(f"ThsUserStockAccount cash={self.b} qty_info={qty_info}")
         return self.b, self.h
     
     def take_action(self, date, action, **kwargs):
+        print("close_dict=", self.close_dict)
+        print("take_action=", action)
         buys, sells = get_buylist_and_selllist(action, self.code2index)
         for code, qty in sells.items():
             price = self.close_dict.get(revert_code(code), 0)
@@ -224,6 +228,38 @@ NOISE = {
     "ornstein_uhlenbeck": OrnsteinUhlenbeckActionNoise
 }
 
+def get_transactions(actions, closings, holdings) -> np.ndarray:
+    """获取实际交易的股数"""
+    actions = actions * config.ENV_PARAMS['hmax']
+
+    # 收盘价为 0 的不进行交易
+    actions = np.where(closings > 0, actions, 0)
+
+    # 去除被除数为 0 的警告
+    out = np.zeros_like(actions)
+    zero_or_not = closings != 0
+    actions = np.divide(actions, closings, out=out, where = zero_or_not)
+    if config.ENV_PARAMS['normalize_buy_sell']:
+        actions = np.sign(actions) * (np.abs(actions) // 100) * 100
+    # 不能卖的比持仓的多
+    actions = np.maximum(actions, -np.array(holdings))
+    # 将 -0 的值全部置为 0
+    actions[actions == -0] = 0
+    return actions
+
+def get_spend_and_rest_money(transactions, closings, cash_on_hand):
+    sells = -np.clip(transactions, -np.inf, 0)
+    proceeds = np.dot(sells, closings)
+    buy_cost_pct = 3e-3
+    sell_cost_pct = 3e-3
+    fixed_fee = 0
+    costs = proceeds * sell_cost_pct + fixed_fee
+    coh = cash_on_hand + proceeds # 计算现金的数量
+    buys = np.clip(transactions, 0, np.inf)
+    spend = np.dot(buys, closings)
+    costs += spend * buy_cost_pct + fixed_fee
+    return spend, costs, coh
+
 class DRL_Agent():
     """强化学习交易智能体
 
@@ -243,8 +279,12 @@ class DRL_Agent():
         account_memory = []
         actions_memory = []
         test_env.reset()
+        holdings = None
+        cash_on_hand = None
         if user_stock_account is not None:
             b, h = user_stock_account.curr_holds()
+            holdings = h
+            cash_on_hand = b
             start_index = 1 + len(h)
             stock_info = test_obs[0][start_index:]
             arr = [b] + list(h) + list(stock_info)
@@ -255,10 +295,13 @@ class DRL_Agent():
             predict_action, _states = model.predict(test_obs)
             if user_stock_account is not None:
                 action = deepcopy(predict_action)
-                action = test_env.env_method("get_transactions", action)[0]
-                res = test_env.env_method("get_spend_and_rest_money", action)[0]
-                spend, costs, coh = res
                 closings = test_env.env_method(method_name="get_closings")[0]
+                print("action:", action)
+                print("closings:", closings)
+                action = get_transactions(action, closings, holdings)
+                print("action2", action)
+                res = get_spend_and_rest_money(action, closings, cash_on_hand)
+                spend, costs, coh = res
                 user_stock_account.take_action(
                     date=test_env.env_method(method_name="get_dates")[0],
                     action=action[0],
