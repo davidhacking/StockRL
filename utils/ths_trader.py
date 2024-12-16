@@ -22,8 +22,8 @@ def get_position_info():
 @app.route('/buy')
 def handle_buy():
     code = request.args.get('code')
-    qty = request.args.get('qty')
-    price = request.args.get('price')
+    qty = int(request.args.get('qty'))
+    price = float(request.args.get('price'))
     user = easytrader.use('ths')
     user.connect(r"C:\同花顺软件\同花顺\xiadan.exe")
     res = user.buy(code, price=price, amount=qty)
@@ -32,8 +32,8 @@ def handle_buy():
 @app.route('/sell')
 def handle_sell():
     code = request.args.get('code')
-    qty = request.args.get('qty')
-    price = request.args.get('price')
+    qty = int(request.args.get('qty'))
+    price = float(request.args.get('price'))
     user = easytrader.use('ths')
     user.connect(r"C:\同花顺软件\同花顺\xiadan.exe")
     res = user.sell(code, price=price, amount=qty)
@@ -59,10 +59,10 @@ def position_info():
         rt = response.text
         response_text = rt.replace("'", '"')
         data = json.loads(response_text)
-        res = []
+        res = {}
         for item in data:
             market = 'SH' if item['交易市场'] == '上海' else 'SZ'
-            res.append({'code': item['证券代码'] + "." + market, 'qty': item['实际数量']})
+            res[item['证券代码'] + "." + market] = item['实际数量']
         return res
     except Exception as e:
         print(f"position_info failed: {e}")

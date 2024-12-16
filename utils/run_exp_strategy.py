@@ -463,6 +463,7 @@ class RunExpStrategy(object):
     def download_stock_data(self):
         if not self.redownload_data and os.path.exists(self.all_stocks_data):
             self.stock_info = pd.read_csv(self.all_stocks_data)
+            self.build_tic_close_dict()
             return
         self.futu_start_download_date = self.start_date
         if not self.no_tushare:

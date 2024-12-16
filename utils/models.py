@@ -120,7 +120,7 @@ def revert_code(code):
 
 def remove_market(code):
     parts = code.split('.')
-    return f"{parts[0]}"
+    return f"{parts[1]}"
 
 def rebuild_h(h, code2index, qty_info):
     new_h = np.zeros_like(h)
@@ -179,7 +179,7 @@ class FutuUserStockAccount(UserStockAccount):
         data['code'] = data['code'].apply(revert_code)
         qty_info = pd.Series(data.qty.values, index=data.code).to_dict()
         self.h = rebuild_h(self.h, self.code2index, qty_info)
-        print(f"FutuUserStockAccount cash={self.b} qty_info={qty_info}")
+        print(f"FutuUserStockAccount cash={self.b} qty_info={qty_info} h={self.h}")
         return self.b, self.h
     
     def take_action(self, date, action, **kwargs):
@@ -200,7 +200,7 @@ class ThsUserStockAccount(UserStockAccount):
         self.b = ths_trader.balance_info()
         qty_info = ths_trader.position_info()
         self.h = rebuild_h(self.h, self.code2index, qty_info)
-        print(f"ThsUserStockAccount cash={self.b} qty_info={qty_info}")
+        print(f"ThsUserStockAccount cash={self.b} qty_info={qty_info} h={self.h}")
         return self.b, self.h
     
     def take_action(self, date, action, **kwargs):
@@ -209,10 +209,10 @@ class ThsUserStockAccount(UserStockAccount):
         buys, sells = get_buylist_and_selllist(action, self.code2index)
         for code, qty in sells.items():
             price = self.close_dict.get(revert_code(code), 0)
-            ths_trader.sell_stock(remove_market(code), price, qty)
+            ths_trader.sell_stock(remove_market(code), price, int(qty))
         for code, qty in buys.items():
             price = self.close_dict.get(revert_code(code), 0)
-            ths_trader.buy_stock(remove_market(code), price, qty)
+            ths_trader.buy_stock(remove_market(code), price, int(qty))
 
 UserStockAccountFactory = {
     "LocalUserStockAccount": LocalUserStockAccount,
@@ -380,3 +380,4 @@ class DRL_Agent():
 if __name__ == "__main__":
     print(ths_trader.balance_info())
     print(ths_trader.position_info())
+    ths_trader.buy_stock("600000", 9.00, 500)
