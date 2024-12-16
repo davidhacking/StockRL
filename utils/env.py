@@ -15,6 +15,16 @@ import threading
 from futu import *
 from futu.common import *
 
+def buy_cost_pct_func(total):
+    return 0
+
+def sell_cost_pct_func(total):
+    return total * 0.0005
+
+def fixed_fee_func(total):
+    fee = total * 0.0002854
+    return max(5, fee)
+
 def revert_code(code):
     parts = code.split('.')
     return f"{parts[1]}.{parts[0]}"
@@ -160,8 +170,10 @@ class StockLearningEnv(gym.Env):
         state_init_func: str = "AllCashStateIntiator",
         random_seed: int = 0,
         fixed_fee: float = 0,
+        use_func: bool = True,
     ) -> None:
         self.df = df
+        self.use_func = use_func
         self.fixed_fee = fixed_fee
         self.stock_col = "tic"
         self.assets = df[self.stock_col].unique()
@@ -404,11 +416,18 @@ class StockLearningEnv(gym.Env):
         sells = -np.clip(transactions, -np.inf, 0)
         proceeds = np.dot(sells, self.closings)
         costs = proceeds * self.sell_cost_pct + self.fixed_fee
+        if self.use_func:
+            costs = sell_cost_pct_func(proceeds) + fixed_fee_func(proceeds)
+        else:
+            costs = proceeds * self.sell_cost_pct + self.fixed_fee
         coh = self.cash_on_hand + proceeds # 计算现金的数量
-
         buys = np.clip(transactions, 0, np.inf)
         spend = np.dot(buys, self.closings)
-        costs += spend * self.buy_cost_pct + self.fixed_fee
+        if self.use_func:
+            costs += buy_cost_pct_func(spend) + fixed_fee_func(spend)
+        else:
+            costs += spend * self.buy_cost_pct + self.fixed_fee
+        
         return spend, costs, coh
 
     def step(

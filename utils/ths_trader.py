@@ -1,43 +1,7 @@
-import easytrader
 import requests
 import json
 
-from flask import Flask, request
-
-app = Flask(__name__)
 base_url = "http://127.0.0.1:5555/"
-
-@app.route('/balance_info')
-def get_balance_info():
-    user = easytrader.use('ths')
-    user.connect(r"C:\同花顺软件\同花顺\xiadan.exe")
-    return str(user.balance)
-
-@app.route('/position_info')
-def get_position_info():
-    user = easytrader.use('ths')
-    user.connect(r"C:\同花顺软件\同花顺\xiadan.exe")
-    return str(user.position)
-
-@app.route('/buy')
-def handle_buy():
-    code = request.args.get('code')
-    qty = int(request.args.get('qty'))
-    price = float(request.args.get('price'))
-    user = easytrader.use('ths')
-    user.connect(r"C:\同花顺软件\同花顺\xiadan.exe")
-    res = user.buy(code, price=price, amount=qty)
-    return res
-
-@app.route('/sell')
-def handle_sell():
-    code = request.args.get('code')
-    qty = int(request.args.get('qty'))
-    price = float(request.args.get('price'))
-    user = easytrader.use('ths')
-    user.connect(r"C:\同花顺软件\同花顺\xiadan.exe")
-    res = user.sell(code, price=price, amount=qty)
-    return res
 
 def balance_info():
     url = base_url + "balance_info"
@@ -93,5 +57,19 @@ def sell_stock(code, price, qty):
     except Exception as e:
         print(f"sell_stock failed: {e}")
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5555)
+def test():
+    url = base_url + f"test"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        rt = response.text
+        return rt
+    except Exception as e:
+        print(f"sell_stock failed: {e}")
+
+if __name__ == "__main__":
+    # print(test())
+    # print(balance_info())
+    # print(position_info())
+    buy_stock("SZ.000100", 4.97, 200)
+    sell_stock("SZ.000100", 4.97, 100)

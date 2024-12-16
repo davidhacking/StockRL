@@ -13,7 +13,7 @@ from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckA
 from utils import config
 from utils import ths_trader
 from utils.preprocessors import split_data
-from utils.env import StockLearningEnv
+from utils.env import StockLearningEnv, buy_cost_pct_func, sell_cost_pct_func, fixed_fee_func
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from futu import *
@@ -250,14 +250,11 @@ def get_transactions(actions, closings, holdings) -> np.ndarray:
 def get_spend_and_rest_money(transactions, closings, cash_on_hand):
     sells = -np.clip(transactions, -np.inf, 0)
     proceeds = np.dot(sells, closings)
-    buy_cost_pct = 3e-3
-    sell_cost_pct = 3e-3
-    fixed_fee = 0
-    costs = proceeds * sell_cost_pct + fixed_fee
+    costs = sell_cost_pct_func(proceeds) + fixed_fee_func(proceeds)
     coh = cash_on_hand + proceeds # 计算现金的数量
     buys = np.clip(transactions, 0, np.inf)
     spend = np.dot(buys, closings)
-    costs += spend * buy_cost_pct + fixed_fee
+    costs += buy_cost_pct_func(spend) + fixed_fee_func(spend)
     return spend, costs, coh
 
 class DRL_Agent():
@@ -376,8 +373,3 @@ class DRL_Agent():
         """训练模型"""
         model = model.learn(total_timesteps=total_timesteps, tb_log_name=tb_log_name)
         return model
-
-if __name__ == "__main__":
-    print(ths_trader.balance_info())
-    print(ths_trader.position_info())
-    ths_trader.buy_stock("600000", 9.00, 500)
