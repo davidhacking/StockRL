@@ -293,10 +293,7 @@ class DRL_Agent():
             if user_stock_account is not None:
                 action = deepcopy(predict_action)
                 closings = test_env.env_method(method_name="get_closings")[0]
-                print("action:", action)
-                print("closings:", closings)
                 action = get_transactions(action, closings, holdings)
-                print("action2", action)
                 res = get_spend_and_rest_money(action, closings, cash_on_hand)
                 spend, costs, coh = res
                 user_stock_account.take_action(
