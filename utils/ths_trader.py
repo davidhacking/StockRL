@@ -70,6 +70,6 @@ def test():
 if __name__ == "__main__":
     # print(test())
     # print(balance_info())
-    # print(position_info())
-    buy_stock("SZ.000100", 4.97, 200)
-    sell_stock("SZ.000100", 4.97, 100)
+    print(position_info())
+    # buy_stock("SZ.000100", 4.97, 200)
+    # sell_stock("SZ.000100", 4.97, 100)

@@ -161,6 +161,24 @@ def buy_cn_stock(code, price, qty, flag):
     trd_ctx.close()
     time.sleep(5)
 
+def cur_price(code):
+    print(f"cur_price {code}")
+    quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
+    ret_sub, err_message = quote_ctx.subscribe([code], [SubType.RT_DATA], subscribe_push=False)
+    if ret_sub == RET_OK:
+        ret, data = quote_ctx.get_rt_data(code)
+        if ret == RET_OK:
+            data['time'] = pd.to_datetime(data['time'])
+            filtered_df = data[data['code'] == code]
+            latest_record = filtered_df.loc[filtered_df['time'].idxmax()]
+            return latest_record['cur_price']
+        else:
+            return 0
+    else:
+        print('subscription failed', err_message)
+    quote_ctx.close()
+    return 0
+
 class FutuUserStockAccount(UserStockAccount):
     def __init__(self, code2index):
         super().__init__(code2index)
@@ -187,9 +205,11 @@ class FutuUserStockAccount(UserStockAccount):
         buys, sells = get_buylist_and_selllist(action, self.code2index)
         for code, qty in sells.items():
             price = self.close_dict.get(revert_code(code), 0)
+            price = cur_price(code)
             buy_cn_stock(code, price, qty, False)
         for code, qty in buys.items():
             price = self.close_dict.get(revert_code(code), 0)
+            price = cur_price(code)
             buy_cn_stock(code, price, qty, True)
 
 class ThsUserStockAccount(UserStockAccount):
@@ -209,9 +229,12 @@ class ThsUserStockAccount(UserStockAccount):
         buys, sells = get_buylist_and_selllist(action, self.code2index)
         for code, qty in sells.items():
             price = self.close_dict.get(revert_code(code), 0)
+            price = cur_price(code)
             ths_trader.sell_stock(remove_market(code), price, int(qty))
+        time.sleep(60)
         for code, qty in buys.items():
             price = self.close_dict.get(revert_code(code), 0)
+            price = cur_price(code)
             ths_trader.buy_stock(remove_market(code), price, int(qty))
 
 UserStockAccountFactory = {
