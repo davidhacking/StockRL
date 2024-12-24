@@ -13,3 +13,5 @@ exps
 .ipynb_checkpoints/
 __pycache__/
 */__pycache__/
+buylist.json
+selllist.json

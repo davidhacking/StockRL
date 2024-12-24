@@ -159,6 +159,7 @@ def financial_metrics(returns):
         "Sharpe比率": sharpe_ratio,
         "Omega比率": omega_ratio
     }
+    return result_dict
     for key, value in result_dict.items():
         if isinstance(value, float):
             result_dict[key] = "{:.2%}".format(value)

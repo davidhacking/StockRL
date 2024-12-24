@@ -143,8 +143,12 @@ def get_buylist_and_selllist(action, code2index):
             buylist[reverted_code] = qty
         elif qty < 0:
             selllist[reverted_code] = abs(qty)
-    print('selllist=', selllist)
-    print('buylist=', buylist)
+    print('selllist=', json.dumps(selllist))
+    with open("/home/david/MF/github/StockRL/utils/selllist.json", 'w') as file:
+        json.dump(selllist, file, indent=4)
+    print('buylist=', json.dumps(buylist))
+    with open("/home/david/MF/github/StockRL/utils/buylist.json", 'w') as file:
+        json.dump(buylist, file, indent=4)
     return buylist, selllist
 
 def buy_cn_stock(code, price, qty, flag):
