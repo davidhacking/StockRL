@@ -63,9 +63,15 @@ def position_info():
         for item in data:
             market = 'SH' if item['交易市场'] == '上海' else 'SZ'
             res[item['证券代码'] + "." + market] = item['实际数量']
+        with open("/home/david/MF/github/StockRL/utils/position_info.json", 'w') as file:
+            json.dump(res, file, indent=4)
         return res
     except Exception as e:
         print(f"position_info failed: {e}")
+
+def read_disk_position_info():
+    with open("/home/david/MF/github/StockRL/utils/position_info.json", 'r') as file:
+        return json.load(file)
 
 def buy_stock(code, price, qty):
     buy_info = f"buy?code={code}&qty={qty}&price={price}"
@@ -149,15 +155,23 @@ def complete_trade():
             incomplete_sells[stock_code] = need_sell[stock_code]
         elif stock_code in res['sell'] and res['sell'][stock_code] != amount:
             incomplete_sells[stock_code] = amount - res['sell'][stock_code]
-    print(f"incomplete_sells={incomplete_sells}")
-    print(f"incomplete_buys={incomplete_buys}")
+    print(f"incomplete_sells{len(incomplete_sells.keys())}={incomplete_sells}")
+    print(f"incomplete_buys{len(incomplete_buys.keys())}={incomplete_buys}")
+    time.sleep(60)
+    i = 0
     for code, qty in incomplete_sells.items():
         price = cur_price(code)
+        i += 1
+        print(f"i={i}")
         sell_stock(remove_market(code), price, int(qty))
     time.sleep(60)
+    i = 0
     for code, qty in incomplete_buys.items():
         price = cur_price(code)
+        i += 1
+        print(f"i={i}")
         buy_stock(remove_market(code), price, int(qty))
+    print("finish")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process mode parameter.")
@@ -167,9 +181,12 @@ if __name__ == "__main__":
     # print(test())
     # print(balance_info())
     if mode == 1:
-        print(position_info())
+        position_info()
+        print(read_disk_position_info())
     elif mode == 2:
         complete_trade()
+    elif mode == 3:
+        print(read_disk_position_info())
     # print(today_entrusts())
     # buy_stock("SZ.000100", 4.97, 200)
     # sell_stock("SZ.000100", 4.97, 100)

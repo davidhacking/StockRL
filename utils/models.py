@@ -222,7 +222,7 @@ class ThsUserStockAccount(UserStockAccount):
 
     def curr_holds(self):
         self.b = ths_trader.balance_info()
-        qty_info = ths_trader.position_info()
+        qty_info = ths_trader.read_disk_position_info()
         self.h = rebuild_h(self.h, self.code2index, qty_info)
         print(f"ThsUserStockAccount cash={self.b} qty_info={qty_info} h={self.h}")
         return self.b, self.h
@@ -256,21 +256,14 @@ NOISE = {
 }
 
 def get_transactions(actions, closings, holdings) -> np.ndarray:
-    """获取实际交易的股数"""
     actions = actions * config.ENV_PARAMS['hmax']
-
-    # 收盘价为 0 的不进行交易
     actions = np.where(closings > 0, actions, 0)
-
-    # 去除被除数为 0 的警告
     out = np.zeros_like(actions)
     zero_or_not = closings != 0
     actions = np.divide(actions, closings, out=out, where = zero_or_not)
     if config.ENV_PARAMS['normalize_buy_sell']:
         actions = np.sign(actions) * (np.abs(actions) // 100) * 100
-    # 不能卖的比持仓的多
     actions = np.maximum(actions, -np.array(holdings))
-    # 将 -0 的值全部置为 0
     actions[actions == -0] = 0
     return actions
 
@@ -278,25 +271,23 @@ def get_spend_and_rest_money(transactions, closings, cash_on_hand):
     sells = -np.clip(transactions, -np.inf, 0)
     proceeds = np.dot(sells, closings)
     costs = sell_cost_pct_func(proceeds) + fixed_fee_func(proceeds)
-    coh = cash_on_hand + proceeds # 计算现金的数量
+    sell_costs = costs
+    coh = cash_on_hand + proceeds
     buys = np.clip(transactions, 0, np.inf)
     spend = np.dot(buys, closings)
-    costs += buy_cost_pct_func(spend) + fixed_fee_func(spend)
+    buy_costs = buy_cost_pct_func(spend) + fixed_fee_func(spend)
+    costs += buy_costs
+    print(f"sell_money={proceeds}, sell_costs={sell_costs}, buy_money={spend}, buy_costs={buy_costs}, "
+          f"cash_on_hand={cash_on_hand}, total_costs={spend+costs}, total_money={proceeds+cash_on_hand}")
     return spend, costs, coh
 
 class DRL_Agent():
-    """强化学习交易智能体
-
-    Attributes:
-        env: 强化学习环境
-    """
 
     @staticmethod
     def DRL_prediction(
         model: Any, environment: Any,
         user_stock_account: UserStockAccount = None,
         ) -> pd.DataFrame:
-        """回测函数"""
 
         test_env, test_obs = environment.get_sb_env()
 
@@ -323,6 +314,11 @@ class DRL_Agent():
                 action = get_transactions(action, closings, holdings)
                 res = get_spend_and_rest_money(action, closings, cash_on_hand)
                 spend, costs, coh = res
+                print(f"spend={spend}, costs={costs}, coh={coh}, res={res}")
+                if (spend + costs) > coh:
+                    print("cannot trade exit")
+                    import sys
+                    sys.exit(0)
                 user_stock_account.take_action(
                     date=test_env.env_method(method_name="get_dates")[0],
                     action=action[0],
