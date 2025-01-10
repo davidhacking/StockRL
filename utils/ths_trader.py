@@ -33,9 +33,9 @@ def today_trades():
             num = item['成交数量']
             market = 'SH' if item['交易市场'] == '上海' else 'SZ'
             if item['买卖'] == '证券卖出':
-                sells[market + "." + code] = num
+                sells[market + "." + code] = sells.get(market + "." + code, 0) + num
             else:
-                buys[market + "." + code] = num
+                buys[market + "." + code] = buys.get(market + "." + code, 0) + num
         return {'buy': buys, 'sell': sells}
     except Exception as e:
         print(f"today_trades failed: {e}")
@@ -111,7 +111,6 @@ def test():
 
 
 def cur_price(code):
-    print(f"cur_price {code}")
     quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
     ret_sub, err_message = quote_ctx.subscribe([code], [SubType.RT_DATA], subscribe_push=False)
     if ret_sub == RET_OK:
@@ -120,6 +119,7 @@ def cur_price(code):
             data['time'] = pd.to_datetime(data['time'])
             filtered_df = data[data['code'] == code]
             latest_record = filtered_df.loc[filtered_df['time'].idxmax()]
+            print(f"cur_price {code} {latest_record['cur_price']}")
             return latest_record['cur_price']
         else:
             return 0
@@ -142,7 +142,7 @@ def complete_trade():
     incomplete_buys = {}
     incomplete_sells = {}
     print(f"today_trades={res}")
-    if len(res['buy'].keys()) == 0 and len(res['sell'].keys()):
+    if len(res['buy'].keys()) == 0 and len(res['sell'].keys()) == 0:
         return
     for stock_code, amount in need_buy.items():
         if stock_code not in res['buy']:
@@ -157,7 +157,7 @@ def complete_trade():
             incomplete_sells[stock_code] = amount - res['sell'][stock_code]
     print(f"incomplete_sells{len(incomplete_sells.keys())}={incomplete_sells}")
     print(f"incomplete_buys{len(incomplete_buys.keys())}={incomplete_buys}")
-    time.sleep(60)
+    time.sleep(30)
     i = 0
     for code, qty in incomplete_sells.items():
         price = cur_price(code)

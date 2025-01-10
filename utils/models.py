@@ -270,8 +270,8 @@ def get_transactions(actions, closings, holdings) -> np.ndarray:
 def get_spend_and_rest_money(transactions, closings, cash_on_hand):
     sells = -np.clip(transactions, -np.inf, 0)
     proceeds = np.dot(sells, closings)
-    costs = sell_cost_pct_func(proceeds) + fixed_fee_func(proceeds)
-    sell_costs = costs
+    sell_costs = sell_cost_pct_func(proceeds) + fixed_fee_func(proceeds)
+    costs = deepcopy(sell_costs)
     coh = cash_on_hand + proceeds
     buys = np.clip(transactions, 0, np.inf)
     spend = np.dot(buys, closings)
@@ -314,7 +314,7 @@ class DRL_Agent():
                 action = get_transactions(action, closings, holdings)
                 res = get_spend_and_rest_money(action, closings, cash_on_hand)
                 spend, costs, coh = res
-                print(f"spend={spend}, costs={costs}, coh={coh}, res={res}")
+                print(f"spend={spend}, costs={costs}, coh={coh}")
                 if (spend + costs) > coh:
                     print("cannot trade exit")
                     import sys
